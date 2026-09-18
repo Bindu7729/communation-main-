@@ -1,15 +1,14 @@
 # 👻 Ghostline — Private & Secure Communication Platform
 
 > **Live Website URL:**  
-> `[PASTE_YOUR_VERCEL_DEPLOYMENT_URL_HERE]`  
-> *(Deploy to Vercel and paste your live website link here)*
+> [https://communation-main.vercel.app/](https://communation-main.vercel.app/)
 
 Ghostline is a high-performance, private messaging and calling application built for real connections.
 
 ---
 
 ## 🌐 Live Website & Deployment
-- **Vercel Deployment URL:** `[PASTE_YOUR_VERCEL_DEPLOYMENT_URL_HERE]`
+- **Vercel Deployment URL:** [https://communation-main.vercel.app/](https://communation-main.vercel.app/)
 - **GitHub Repository:** [https://github.com/Bindu7729/communation-main-](https://github.com/Bindu7729/communation-main-)
 
 ---
