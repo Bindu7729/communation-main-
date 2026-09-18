@@ -30,42 +30,35 @@ export class PushDispatcher implements PostCommitConsumer {
           AND user_id != ${senderId}
       `;
 
-      if (!members.length) return;
+      if (!members || !members.length) return;
 
       // Filter out muted members
-      let activeMemberIds = members.filter((m) => !m.muted).map((m) => m.user_id);
+      const activeMemberIds = members.filter((m) => !m.muted).map((m) => m.user_id);
       if (!activeMemberIds.length) return;
 
-      // Filter out blocked users
-      const blocked = await sql<{ id: string }[]>`
-        SELECT requester_id AS id FROM public.friendships
-        WHERE addressee_id = ${senderId} AND status = 'blocked'
-          AND requester_id = ANY(${activeMemberIds})
-        UNION
-        SELECT addressee_id AS id FROM public.friendships
-        WHERE requester_id = ${senderId} AND status = 'blocked'
-          AND addressee_id = ANY(${activeMemberIds})
-      `;
-      const blockedIds = new Set(blocked.map((b) => b.id));
-      activeMemberIds = activeMemberIds.filter((id) => !blockedIds.has(id));
-
-      if (!activeMemberIds.length) return;
-
-      // Fetch metadata
-      const senderRows = await sql<{ display_name: string }[]>`SELECT display_name FROM public.user_profiles WHERE id = ${senderId}`;
-      const senderName = senderRows[0]?.display_name || "Someone";
-
-      const convRows = await sql<{ kind: string; title: string | null }[]>`SELECT kind, title FROM public.conversations WHERE id = ${conversation_id}`;
-      const groupName = convRows[0]?.kind === "group" ? convRows[0]?.title || undefined : undefined;
-
-      // 2. Fetch push subscriptions for active members
+      // 2. Fetch push subscriptions for active members early to avoid redundant queries
       const subscriptions = await sql<StoredPushSubscription[]>`
         SELECT id, user_id, endpoint, p256dh, auth
         FROM public.push_subscriptions
         WHERE user_id = ANY(${activeMemberIds})
       `;
 
-      if (!subscriptions.length) return;
+      if (!subscriptions || !subscriptions.length) return;
+
+      // Filter out blocked users among those with subscriptions
+      const targetUserIds = Array.from(new Set(subscriptions.map((s) => s.user_id)));
+      const blocked = await sql<{ id: string }[]>`
+        SELECT requester_id AS id FROM public.friendships
+        WHERE addressee_id = ${senderId} AND status = 'blocked'
+          AND requester_id = ANY(${targetUserIds})
+        UNION
+        SELECT addressee_id AS id FROM public.friendships
+        WHERE requester_id = ${senderId} AND status = 'blocked'
+          AND addressee_id = ANY(${targetUserIds})
+      `;
+      const blockedIds = new Set((blocked || []).map((b) => b.id));
+      const eligibleSubscriptions = subscriptions.filter((s) => !blockedIds.has(s.user_id));
+      if (!eligibleSubscriptions.length) return;
 
       // 3. Verify VAPID configuration
       const publicKey = process.env.VAPID_PUBLIC_KEY;
@@ -77,19 +70,16 @@ export class PushDispatcher implements PostCommitConsumer {
         return;
       }
 
-      // Minimal safe payload: no body, no attachment contents, no signed URLs
+      // Minimal privacy-preserving payload (Model A generic push: 0% plaintext/metadata exposure)
       const payload: WebPushNotificationPayload = {
         title: "New message",
         body: "New message in Ghostline",
         notificationId: event_id,
-        conversationId: conversation_id,
-        senderName: senderName,
-        groupName: groupName,
       };
 
       // 4. Dispatch push notifications in parallel with failure isolation
       await Promise.allSettled(
-        subscriptions.map(async (sub) => {
+        eligibleSubscriptions.map(async (sub) => {
           const res = await sendWebPushNotification(
             { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
             payload,

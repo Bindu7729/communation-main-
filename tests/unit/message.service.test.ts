@@ -13,6 +13,7 @@ describe("MessageService", () => {
 
   let messagesStore: Message[];
   let hiddenStore: Array<{ userId: string; messageId: string }>;
+  let deliveredReceipts: Array<{ userId: string; messageIds: string[]; at: string }>;
   let rateLimitHitCount: number;
 
   let mockMessagesRepo: Partial<MessageRepository>;
@@ -49,6 +50,7 @@ describe("MessageService", () => {
       },
     ];
     hiddenStore = [];
+    deliveredReceipts = [];
     rateLimitHitCount = 0;
 
     mockMessagesRepo = {
@@ -57,7 +59,13 @@ describe("MessageService", () => {
         if (opts.before) {
           list = list.filter((m) => m.created_at < opts.before!);
         }
+        if (opts.after) {
+          list = list.filter((m) => m.created_at > opts.after!);
+        }
         return list.slice(0, opts.limit);
+      },
+      markReceiptsDelivered: async (userId, messageIds, at) => {
+        deliveredReceipts.push({ userId, messageIds, at });
       },
       getById: async (id) => messagesStore.find((m) => m.id === id) ?? null,
       getByIds: async (ids) => messagesStore.filter((m) => ids.includes(m.id)),
@@ -101,7 +109,12 @@ describe("MessageService", () => {
         );
       },
       listReceipts: async () => [],
-      listEdits: async () => [],
+      listEdits: async (messageId: string) => {
+        if (messageId === "msg-edited") {
+          return [{ previous_body: "Original text", edited_at: "2026-09-01T10:02:00.000Z" }];
+        }
+        return [];
+      },
     };
 
     mockConversationsRepo = {};
@@ -186,5 +199,41 @@ describe("MessageService", () => {
         body: "Spam message",
       }),
     ).rejects.toThrow(RateLimitError);
+  });
+
+  it("marks delivery receipts for incoming messages", async () => {
+    const res = await service.markDelivered(convId, ["msg-2"]);
+    expect(res).toEqual({ ok: true });
+    expect(deliveredReceipts).toHaveLength(1);
+    expect(deliveredReceipts[0].userId).toBe(currentUserId);
+    expect(deliveredReceipts[0].messageIds).toEqual(["msg-2"]);
+  });
+
+  it("supports incremental catchup using opts.after", async () => {
+    const list = await service.list(convId, {
+      after: "2026-09-01T10:00:00.000Z",
+      limit: 10,
+    });
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe("msg-2");
+  });
+
+  it("allows conversation members to view message edit history", async () => {
+    messagesStore.push({
+      id: "msg-edited",
+      conversation_id: convId,
+      sender_id: otherUserId,
+      body: "Updated text",
+      client_id: "cid-edited",
+      created_at: "2026-09-01T10:01:30.000Z",
+      edited_at: "2026-09-01T10:02:00.000Z",
+      deleted_at: null,
+      reply_to_id: null,
+      forwarded_from_id: null,
+    });
+
+    const edits = await service.listEdits("msg-edited");
+    expect(edits).toHaveLength(1);
+    expect(edits[0].previous_body).toBe("Original text");
   });
 });

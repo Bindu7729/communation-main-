@@ -463,7 +463,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // All mutable values that need to be read inside the handlers are accessed
   // through stable refs (incomingRef, activeRef, etc.) so no re-subscription
   // is ever needed.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!myId) return;
 
@@ -479,7 +478,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setIncoming({ payload: p, offer: p.sdp });
         setState("RINGING");
         // Use ref for ringtone — no re-run needed
-        ringtoneRef.current === null && (() => {
+        if (ringtoneRef.current === null) {
           try {
             const Ctor =
               window.AudioContext ??
@@ -509,7 +508,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             };
             ctx.resume().catch(() => {});
           } catch { /* best-effort */ }
-        })();
+        }
       },
       onAnswer: async (p) => {
         const pc = pcRef.current;

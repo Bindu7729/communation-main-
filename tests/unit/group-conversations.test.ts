@@ -1,5 +1,4 @@
-// @ts-nocheck
-﻿import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { ConversationService } from "@/lib/services/conversation.service";
 import { AuthorizationError } from "@/lib/domain/errors";
 import type {
@@ -34,11 +33,18 @@ function makeService(
 ): ConversationService {
   let membersStore: MemberRow[] = [...members];
 
-  const convRepo: ConversationRepository = {
-    openDirect: async (fid) => `conv-direct-${fid}`,
-    createGroup: async (title, memberIds) => {
+  const convRepo = {
+    openDirect: async (fid: string) => `conv-direct-${fid}`,
+    createGroup: async (title: string, memberIds: string[]) => {
       const newConvId = cid(convs.length + 1);
-      convs.push({ id: newConvId, kind: "group", title, created_by: currentUserId, last_message_at: new Date().toISOString() });
+      convs.push({
+        id: newConvId,
+        kind: "group",
+        title,
+        created_by: currentUserId,
+        last_message_at: new Date().toISOString(),
+        disappearing_messages_enabled: false,
+      });
       for (const mid of [currentUserId, ...memberIds]) {
         membersStore.push({ conversation_id: newConvId, user_id: mid, role: mid === currentUserId ? "owner" : "member" });
         if (mid === currentUserId) {
@@ -50,38 +56,38 @@ function makeService(
       memberships.push({ conversation_id: newConvId, last_read_at: new Date().toISOString(), pinned: false, muted: false, archived: false, role: "owner" });
       return newConvId;
     },
-    addMember: async (convId, memberId, role) => {
+    addMember: async (convId: string, memberId: string, role?: GroupMemberRole) => {
       members.push({ conversation_id: convId, user_id: memberId, role: role ?? "member" });
       membersStore = [...members];
     },
-    removeMember: async (convId, memberId) => {
+    removeMember: async (convId: string, memberId: string) => {
       const idx = members.findIndex((m) => m.conversation_id === convId && m.user_id === memberId);
       if (idx !== -1) members.splice(idx, 1);
       membersStore = [...members];
     },
-    updateMemberRole: async (convId, memberId, role) => {
+    updateMemberRole: async (convId: string, memberId: string, role: GroupMemberRole) => {
       const m = members.find((m) => m.conversation_id === convId && m.user_id === memberId);
       if (m) m.role = role;
       membersStore = [...members];
     },
-    updateGroupTitle: async (convId, title) => {
+    updateGroupTitle: async (convId: string, title: string) => {
       const c = convs.find((c) => c.id === convId);
       if (c) c.title = title;
     },
-    listMyMemberships: async (userId) => {
+    listMyMemberships: async (userId: string) => {
       const inConvIds = members.filter((m) => m.user_id === userId).map((m) => m.conversation_id);
       return memberships.filter((m) => inConvIds.includes(m.conversation_id));
     },
-    getSummaries: async (ids) => convs.filter((c) => ids.includes(c.id)),
-    listMembers: async (ids) => members.filter((m) => ids.includes(m.conversation_id)),
-    getById: async (id) => {
+    getSummaries: async (ids: string[]) => convs.filter((c) => ids.includes(c.id)),
+    listMembers: async (ids: string[]) => members.filter((m) => ids.includes(m.conversation_id)),
+    getById: async (id: string) => {
       const c = convs.find((c) => c.id === id);
       if (!c) throw new Error("Conversation not found");
       return c;
     },
     updateFlags: async () => {},
     updateLastRead: async () => {},
-    leave: async (userId, convId) => {
+    leave: async (userId: string, convId: string) => {
       const idx = members.findIndex((m) => m.user_id === userId && m.conversation_id === convId);
       if (idx !== -1) members.splice(idx, 1);
       membersStore = [...members];
@@ -106,7 +112,13 @@ function makeService(
     unblockBetween: async () => {},
   } as unknown as FriendshipRepository;
 
-  return new ConversationService(currentUserId, convRepo, msgRepo, profileRepo, friendRepo);
+  return new ConversationService(
+    currentUserId,
+    convRepo as unknown as ConversationRepository,
+    msgRepo,
+    profileRepo,
+    friendRepo,
+  );
 }
 
 describe("Milestone 3: Group Conversations", () => {
@@ -123,7 +135,14 @@ describe("Milestone 3: Group Conversations", () => {
 
   beforeEach(() => {
     convsStore = [
-      { id: groupConvId, kind: "group", title: "Test Group", created_by: owner, last_message_at: "2026-09-01T12:00:00Z" },
+      {
+        id: groupConvId,
+        kind: "group",
+        title: "Test Group",
+        created_by: owner,
+        last_message_at: "2026-09-01T12:00:00Z",
+        disappearing_messages_enabled: false,
+      },
     ];
     membersStore = [
       { conversation_id: groupConvId, user_id: owner, role: "owner" as GroupMemberRole },

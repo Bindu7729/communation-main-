@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { authService } from "@/lib/auth/session";
+import { isDevAuthActive, getActiveDevUserProfile } from "@/lib/auth/dev-auth";
 import { getMyProfile } from "@/lib/profile.functions";
 import { validateDeviceSession } from "@/lib/devices.functions";
 import { getDeviceKey } from "@/lib/device-key";
@@ -54,7 +55,13 @@ export const Route = createFileRoute("/_authenticated")({
     // 3. Fast cached profile check
     let profile = cachedProfile;
     if (!profile || profile.id !== user.id) {
-      profile = await getMyProfile();
+      try {
+        profile = await getMyProfile();
+      } catch {
+        if (isDevAuthActive() || import.meta.env.DEV) {
+          profile = getActiveDevUserProfile(user.id);
+        }
+      }
       if (profile) {
         cachedProfile = profile;
       }

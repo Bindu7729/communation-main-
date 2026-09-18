@@ -6,12 +6,20 @@ import type { AppSupabase } from "@/lib/infra/supabase/app-client";
 import { getPostgresClient } from "@/lib/infra/postgres/client";
 import { PostgresPrekeyRepository } from "@/lib/repositories/postgres/postgres-prekey-repository";
 import { PostgresDeviceRepository } from "@/lib/repositories/postgres/postgres-device-call-repository";
+import { SupabasePrekeyRepository } from "@/lib/repositories/supabase/supabase-prekey-repository";
+import { SupabaseDeviceRepository } from "@/lib/repositories/supabase/supabase-device-call-repository";
 import { DeviceCryptoService } from "@/lib/services/device-crypto.service";
+import type { JsonValue } from "@/lib/domain/types";
 
 function service(context: { supabase: AppSupabase; userId: string }) {
-  const sql = getPostgresClient();
-  const prekeys = new PostgresPrekeyRepository(sql);
-  const devices = new PostgresDeviceRepository(sql);
+  if (process.env.DATA_REPOSITORY_DRIVER?.toLowerCase() === "neon") {
+    const sql = getPostgresClient();
+    const prekeys = new PostgresPrekeyRepository(sql);
+    const devices = new PostgresDeviceRepository(sql);
+    return new DeviceCryptoService(context.userId, prekeys, devices);
+  }
+  const prekeys = new SupabasePrekeyRepository(context.supabase);
+  const devices = new SupabaseDeviceRepository(context.supabase);
   return new DeviceCryptoService(context.userId, prekeys, devices);
 }
 
@@ -69,13 +77,31 @@ export const revokeDeviceCrypto = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => z.object({ device_id: z.string().uuid() }).parse(data))
   .handler(async ({ data, context }) => service(context).revoke(data.device_id));
 
-// DUMMY FUNCTIONS for E2EE adapter to compile
-export const getE2eeRelayDevices = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => [] as any);
-export const getE2eeRelayIdentity = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => null as any);
-export const getE2eeRelayPreKeyBundle = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => null as any);
-export const getPendingE2eeEnvelopes = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => [] as any);
-export const markE2eeEnvelopeDelivered = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => {});
-export const registerE2eeRelayDevice = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => ({ protocol_device_id: 1 } as any));
-export const sendE2eeEnvelope = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => ({ message_id: "", server_timestamp: 0 } as any));
-export const syncE2eeRelayIdentity = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => {});
-export const syncE2eeRelayPrekeys = createServerFn({ method: "POST" }).inputValidator((d: unknown) => d as any).handler(async () => {});
+// Relay transport placeholders for SDK adapter
+export const getE2eeRelayDevices = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, unknown>)
+  .handler(async () => [] as Array<{ protocol_device_id: number; device_type: "mobile" | "desktop" | "tablet" | "web"; enabled: boolean; created_at: string; updated_at: string }>);
+export const getE2eeRelayIdentity = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, unknown>)
+  .handler(async () => null as { x25519_public_key?: string; ed25519_public_key?: string } | null);
+export const getE2eeRelayPreKeyBundle = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, JsonValue>)
+  .handler(async () => null as JsonValue);
+export const getPendingE2eeEnvelopes = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, unknown>)
+  .handler(async () => [] as Array<{ sender_user_id: string; sender_device_id: number; ciphertext: string; message_type: number; client_timestamp: number; client_message_id: string | null; urgent?: boolean; ephemeral?: boolean; id: string; server_timestamp: number }>);
+export const markE2eeEnvelopeDelivered = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, unknown>)
+  .handler(async () => {});
+export const registerE2eeRelayDevice = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, unknown>)
+  .handler(async () => ({ protocol_device_id: 1 }));
+export const sendE2eeEnvelope = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, unknown>)
+  .handler(async () => ({ message_id: "", server_timestamp: 0 }));
+export const syncE2eeRelayIdentity = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, unknown>)
+  .handler(async () => {});
+export const syncE2eeRelayPrekeys = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => d as Record<string, unknown>)
+  .handler(async () => {});

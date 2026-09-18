@@ -39,7 +39,7 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const conversationId = event.notification.data?.conversationId;
-  const target = conversationId ? `/_authenticated/chats/${encodeURIComponent(conversationId)}` : "/";
+  const target = conversationId ? `/chats/${encodeURIComponent(conversationId)}` : "/";
   event.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
     // Look for an existing window to focus
     for (const client of windows) {

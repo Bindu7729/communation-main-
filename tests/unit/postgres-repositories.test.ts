@@ -1,5 +1,4 @@
 // @ts-nocheck
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it } from "vitest";
 import { PostgresConversationRepository } from "@/lib/repositories/postgres/postgres-conversation-repository";
 import { PostgresMessageRepository } from "@/lib/repositories/postgres/postgres-message-repository";
@@ -81,8 +80,8 @@ function createSqlMock() {
       return [];
     }
 
-    // Messages Keyset pagination
-    if (query.includes("FROM public.messages") && query.includes("ORDER BY created_at DESC, id DESC")) {
+    // Messages Keyset pagination & catchup
+    if (query.includes("FROM public.messages") && (query.includes("ORDER BY created_at DESC, id DESC") || query.includes("ORDER BY created_at ASC, id ASC"))) {
       const convId = values[0];
       let filtered = store.messages.filter((m) => m.conversation_id === convId);
 
@@ -90,16 +89,48 @@ function createSqlMock() {
         const before = values[1];
         filtered = filtered.filter((m) => m.created_at < before);
       }
+      if (query.includes("created_at > ?")) {
+        const after = values[1];
+        filtered = filtered.filter((m) => m.created_at > after);
+      }
 
-      // Sort by created_at DESC, id DESC
-      filtered.sort((a, b) => {
-        const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        if (timeDiff !== 0) return timeDiff;
-        return b.id.localeCompare(a.id);
-      });
+      if (query.includes("ORDER BY created_at ASC, id ASC")) {
+        filtered.sort((a, b) => {
+          const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          if (timeDiff !== 0) return timeDiff;
+          return a.id.localeCompare(b.id);
+        });
+      } else {
+        // Sort by created_at DESC, id DESC
+        filtered.sort((a, b) => {
+          const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          if (timeDiff !== 0) return timeDiff;
+          return b.id.localeCompare(a.id);
+        });
+      }
 
       const limit = values[values.length - 1] ?? 50;
       return filtered.slice(0, limit);
+    }
+
+    // Message receipts update
+    if (query.includes("UPDATE public.message_receipts")) {
+      const [at, userId, messageIds] = values;
+      for (const mId of messageIds) {
+        let r = store.message_receipts.find((rec: any) => rec.user_id === userId && rec.message_id === mId);
+        if (!r) {
+          r = { user_id: userId, message_id: mId, delivered_at: null, read_at: null };
+          store.message_receipts.push(r);
+        }
+        if (query.includes("delivered_at = ?")) {
+          if (!r.delivered_at) r.delivered_at = at;
+        }
+        if (query.includes("read_at = ?")) {
+          if (!r.read_at) r.read_at = at;
+          if (!r.delivered_at) r.delivered_at = at;
+        }
+      }
+      return [];
     }
 
     // Insert message
@@ -306,6 +337,54 @@ describe("Postgres Repositories & Keyset Pagination", () => {
 
     const count = await msgRepo.countUnread("conv-1", "caller", since);
     expect(count).toBe(1);
+  });
+
+  it("marks message receipts delivered and fetches catchup messages with opts.after", async () => {
+    const { sql, store } = createSqlMock();
+    const msgRepo = new PostgresMessageRepository(sql);
+
+    store.messages.push(
+      {
+        id: "msg-101",
+        conversation_id: "conv-catchup",
+        sender_id: "peer-1",
+        body: "First message",
+        created_at: "2026-09-02T10:00:00.000Z",
+        client_id: "c1",
+        reply_to_id: null,
+        forwarded_from_id: null,
+        is_vanish: false,
+        edited_at: null,
+        deleted_at: null,
+      },
+      {
+        id: "msg-102",
+        conversation_id: "conv-catchup",
+        sender_id: "peer-1",
+        body: "Second message",
+        created_at: "2026-09-02T10:05:00.000Z",
+        client_id: "c2",
+        reply_to_id: null,
+        forwarded_from_id: null,
+        is_vanish: false,
+        edited_at: null,
+        deleted_at: null,
+      },
+    );
+
+    // Test markReceiptsDelivered
+    await msgRepo.markReceiptsDelivered("caller-user", ["msg-101", "msg-102"], "2026-09-02T10:06:00.000Z");
+    const receipt101 = store.message_receipts.find((r) => r.message_id === "msg-101");
+    expect(receipt101).toBeDefined();
+    expect(receipt101?.delivered_at).toBe("2026-09-02T10:06:00.000Z");
+
+    // Test catchup list with after
+    const catchup = await msgRepo.list("conv-catchup", {
+      after: "2026-09-02T10:01:00.000Z",
+      limit: 10,
+    });
+    expect(catchup).toHaveLength(1);
+    expect(catchup[0].id).toBe("msg-102");
   });
 });
 

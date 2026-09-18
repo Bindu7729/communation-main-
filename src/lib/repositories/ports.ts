@@ -14,6 +14,7 @@ import type {
   GroupAdminAction,
   GroupInviteLink,
   GroupMemberRole,
+  JsonValue,
   GroupPermissions,
   MemberRestriction,
   Message,
@@ -97,7 +98,7 @@ export interface ConversationRepository {
     actorId: string,
     action: string,
     targetUserId?: string | null,
-    metadata?: Record<string, any> | null,
+    metadata?: Record<string, JsonValue> | null,
   ): Promise<void>;
   listAdminActions(conversationId: string, limit?: number): Promise<GroupAdminAction[]>;
   listMyMemberships(userId: string): Promise<ConversationMemberFlags[]>;
@@ -126,7 +127,7 @@ export type InsertMessage = {
 };
 
 export interface MessageRepository {
-  list(conversationId: string, opts: { before?: string; limit: number }): Promise<Message[]>;
+  list(conversationId: string, opts: { before?: string; after?: string; limit: number }): Promise<Message[]>;
   getByIds(ids: string[]): Promise<Message[]>;
   getById(id: string): Promise<Message | null>;
   insert(row: InsertMessage): Promise<Message>;
@@ -147,6 +148,7 @@ export interface MessageRepository {
   listEdits(messageId: string): Promise<MessageEdit[]>;
   listReceipts(messageId: string): Promise<Array<{ user_id: string; delivered_at: string | null; read_at: string | null }>>;
   markReceiptsRead(userId: string, messageIds: string[], at: string): Promise<void>;
+  markReceiptsDelivered(userId: string, messageIds: string[], at: string): Promise<void>;
   listReceiptsForMessages(messageIds: string[]): Promise<Array<{ message_id: string; delivered_at: string | null; read_at: string | null }>>;
   insertMany(rows: InsertMessage[]): Promise<void>;
 }

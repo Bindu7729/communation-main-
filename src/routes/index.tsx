@@ -567,8 +567,23 @@ function LandingPage() {
   );
 }
 
-// Simple Chat Row helper for the left mockup
-function ChatRow({ avatar, name, message, time, isTyping, active, bg = "bg-slate-200 text-slate-600" }: any) {
+function ChatRow({
+  avatar,
+  name,
+  message,
+  time,
+  isTyping,
+  active,
+  bg = "bg-slate-200 text-slate-600",
+}: {
+  avatar: string;
+  name: string;
+  message: string;
+  time: string;
+  isTyping?: boolean;
+  active?: boolean;
+  bg?: string;
+}) {
   return (
     <div className={`flex items-center gap-2.5 py-2 px-2 ${active ? 'bg-[#F8FAFC] rounded-xl' : ''}`}>
       <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center font-bold text-[12px] sm:text-[13px] shrink-0 overflow-hidden ${bg}`}>

@@ -6,9 +6,23 @@ export class PostgresMessageRepository implements MessageRepository {
   constructor(private readonly db: DbClient) {}
 
   /**
-   * Keyset pagination on messages using (created_at DESC, id DESC)
+   * Keyset pagination on messages using (created_at DESC, id DESC) or (created_at ASC, id ASC) for catchup
    */
-  async list(conversationId: string, opts: { before?: string; limit: number }): Promise<Message[]> {
+  async list(conversationId: string, opts: { before?: string; after?: string; limit: number }): Promise<Message[]> {
+    if (opts.after) {
+      const rows = await this.db<Message[]>`
+        SELECT id, conversation_id, sender_id, body, client_id,
+               created_at::text, edited_at::text, deleted_at::text,
+               reply_to_id, forwarded_from_id, is_vanish
+          FROM public.messages
+         WHERE conversation_id = ${conversationId}
+           AND created_at > ${opts.after}
+         ORDER BY created_at ASC, id ASC
+         LIMIT ${opts.limit};
+      `;
+      return rows;
+    }
+
     if (opts.before) {
       const rows = await this.db<Message[]>`
         SELECT id, conversation_id, sender_id, body, client_id,
@@ -275,10 +289,22 @@ export class PostgresMessageRepository implements MessageRepository {
     if (messageIds.length === 0) return;
     await this.db`
       UPDATE public.message_receipts
-         SET read_at = ${at}
+         SET read_at = ${at},
+             delivered_at = COALESCE(delivered_at, ${at})
        WHERE user_id = ${userId}
          AND message_id = ANY(${messageIds})
          AND read_at IS NULL;
+    `;
+  }
+
+  async markReceiptsDelivered(userId: string, messageIds: string[], at: string): Promise<void> {
+    if (messageIds.length === 0) return;
+    await this.db`
+      UPDATE public.message_receipts
+         SET delivered_at = ${at}
+       WHERE user_id = ${userId}
+         AND message_id = ANY(${messageIds})
+         AND delivered_at IS NULL;
     `;
   }
 

@@ -6,7 +6,19 @@ import type { InsertMessage, MessageRepository } from "@/lib/repositories/ports"
 export class SupabaseMessageRepository implements MessageRepository {
   constructor(private readonly supabase: AppSupabase) {}
 
-  async list(conversationId: string, opts: { before?: string; limit: number }): Promise<Message[]> {
+  async list(conversationId: string, opts: { before?: string; after?: string; limit: number }): Promise<Message[]> {
+    if (opts.after) {
+      const { data, error } = await this.supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .gt("created_at", opts.after)
+        .order("created_at", { ascending: true })
+        .limit(opts.limit);
+      if (error) mapInfraError(error);
+      return (data ?? []) as Message[];
+    }
+
     let q = this.supabase
       .from("messages")
       .select("*")
@@ -212,6 +224,17 @@ export class SupabaseMessageRepository implements MessageRepository {
       .in("message_id", messageIds)
       .eq("user_id", userId)
       .is("read_at", null);
+    if (error) mapInfraError(error);
+  }
+
+  async markReceiptsDelivered(userId: string, messageIds: string[], at: string): Promise<void> {
+    if (messageIds.length === 0) return;
+    const { error } = await this.supabase
+      .from("message_receipts")
+      .update({ delivered_at: at })
+      .in("message_id", messageIds)
+      .eq("user_id", userId)
+      .is("delivered_at", null);
     if (error) mapInfraError(error);
   }
 

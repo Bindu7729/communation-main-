@@ -10,7 +10,15 @@ export const DEV_USER: AuthUser = {
   email: "dev@ghostline.local",
 };
 
-export const DEV_USER_PROFILE = {
+export type DevUserProfile = {
+  id: string;
+  username: string;
+  display_name: string;
+  bio: string;
+  avatar_url: string | null;
+};
+
+export const DEV_USER_PROFILE: DevUserProfile = {
   id: DEV_USER.id,
   username: "devghost",
   display_name: "Ghostline Developer",
@@ -18,8 +26,28 @@ export const DEV_USER_PROFILE = {
   avatar_url: null,
 };
 
+/**
+ * User requested login credentials:
+ * email: pbibinduamb@gmail.com
+ * name: bindu
+ * password: bindu@295
+ */
+export const BINDU_USER: AuthUser = {
+  id: "00000000-0000-0000-0000-000000000002",
+  email: "pbibinduamb@gmail.com",
+};
+
+export const BINDU_USER_PROFILE: DevUserProfile = {
+  id: BINDU_USER.id,
+  username: "bindu",
+  display_name: "bindu",
+  bio: "Ghostline user",
+  avatar_url: null,
+};
+
 export const DEV_DEVICE_KEY = "dev-device-ghostline";
 export const DEV_AUTH_STORAGE_KEY = "ghostline.dev_auth_active";
+export const DEV_ACTIVE_USER_STORAGE_KEY = "ghostline.dev_active_user";
 export const DEV_AUTH_HEADER_PREFIX = "DEV_BYPASS_TOKEN_";
 
 /**
@@ -55,26 +83,95 @@ export function setDevAuthActive(active: boolean): void {
     window.localStorage.setItem(DEV_AUTH_STORAGE_KEY, "true");
   } else {
     window.localStorage.removeItem(DEV_AUTH_STORAGE_KEY);
+    window.localStorage.removeItem(DEV_ACTIVE_USER_STORAGE_KEY);
   }
+}
+
+export function getActiveDevUser(): AuthUser {
+  if (typeof window !== "undefined" && window.localStorage) {
+    const raw = window.localStorage.getItem(DEV_ACTIVE_USER_STORAGE_KEY);
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        // fallback
+      }
+    }
+  }
+  return DEV_USER;
+}
+
+export function setActiveDevUser(user: AuthUser, profile?: typeof DEV_USER_PROFILE): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  window.localStorage.setItem(DEV_ACTIVE_USER_STORAGE_KEY, JSON.stringify(user));
+  if (profile) {
+    window.localStorage.setItem(`ghostline.dev_profile.${user.id}`, JSON.stringify(profile));
+  }
+}
+
+const inMemoryDevProfiles: Record<string, typeof DEV_USER_PROFILE> = {
+  [DEV_USER.id]: { ...DEV_USER_PROFILE },
+  [BINDU_USER.id]: { ...BINDU_USER_PROFILE },
+};
+
+export function updateDevUserProfile(
+  userId: string,
+  patch: Partial<typeof DEV_USER_PROFILE>,
+): typeof DEV_USER_PROFILE {
+  const current = getActiveDevUserProfile(userId);
+  const updated = {
+    ...current,
+    ...patch,
+  };
+  inMemoryDevProfiles[userId] = updated;
+  if (typeof window !== "undefined" && window.localStorage) {
+    window.localStorage.setItem(`ghostline.dev_profile.${userId}`, JSON.stringify(updated));
+  }
+  return updated;
+}
+
+export function getActiveDevUserProfile(userId: string): typeof DEV_USER_PROFILE {
+  if (typeof window !== "undefined" && window.localStorage) {
+    const raw = window.localStorage.getItem(`ghostline.dev_profile.${userId}`);
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        // fallback
+      }
+    }
+  }
+  if (inMemoryDevProfiles[userId]) {
+    return inMemoryDevProfiles[userId];
+  }
+  if (userId === BINDU_USER.id) return BINDU_USER_PROFILE;
+  return DEV_USER_PROFILE;
 }
 
 /**
  * Creates a mock session object for the development user.
  */
-export function getDevSession(): Session {
+export function getDevSession(targetUser?: AuthUser): Session {
+  const user =
+    targetUser ??
+    (typeof window !== "undefined" && window.localStorage?.getItem(DEV_ACTIVE_USER_STORAGE_KEY)
+      ? getActiveDevUser()
+      : DEV_USER);
+  const profile = getActiveDevUserProfile(user.id);
+
   return {
-    access_token: `${DEV_AUTH_HEADER_PREFIX}${DEV_USER.id}`,
+    access_token: `${DEV_AUTH_HEADER_PREFIX}${user.id}`,
     token_type: "bearer",
     expires_in: 3600 * 24 * 365,
     expires_at: Math.floor(Date.now() / 1000) + 3600 * 24 * 365,
     refresh_token: "dev-refresh-token",
     user: {
-      id: DEV_USER.id,
+      id: user.id,
       app_metadata: { provider: "dev_bypass" },
-      user_metadata: { name: DEV_USER_PROFILE.display_name },
+      user_metadata: { name: profile.display_name, username: profile.username },
       aud: "authenticated",
       created_at: new Date().toISOString(),
-      email: DEV_USER.email ?? undefined,
+      email: user.email ?? undefined,
     },
   };
 }

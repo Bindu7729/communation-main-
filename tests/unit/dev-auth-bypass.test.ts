@@ -3,16 +3,21 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   DEV_USER,
   DEV_USER_PROFILE,
+  BINDU_USER,
+  BINDU_USER_PROFILE,
   DEV_DEVICE_KEY,
   DEV_AUTH_HEADER_PREFIX,
   isDevAuthBypassEnabled,
   isDevAuthActive,
   setDevAuthActive,
   getDevSession,
+  getActiveDevUserProfile,
+  updateDevUserProfile,
 } from "@/lib/auth/dev-auth";
 import { authService } from "@/lib/auth/session";
 import { getDeviceKey } from "@/lib/device-key";
 import { DecryptedMessageStore } from "@/lib/e2ee/decrypted-message-store";
+import { SupabaseProfileRepository } from "@/lib/repositories/supabase/supabase-profile-repository";
 
 describe("Ghostline Development Auth Bypass & Safety Hardening", () => {
   let localStorageMock: Record<string, string>;
@@ -90,6 +95,37 @@ describe("Ghostline Development Auth Bypass & Safety Hardening", () => {
       expect(data.session?.user.id).toBe(DEV_USER.id);
     });
 
+    it("signs in successfully with requested Bindu credentials", async () => {
+      setDevAuthActive(false);
+
+      // Wrong password fails
+      const fail = await authService.signInWithPassword("pbibinduamb@gmail.com", "wrongpassword");
+      expect(fail.error).toBeTruthy();
+      expect(fail.data?.user).toBeFalsy();
+
+      // Correct password succeeds
+      const ok = await authService.signInWithPassword("pbibinduamb@gmail.com", "bindu@295");
+      expect(ok.error).toBeNull();
+      expect(ok.data?.user?.email).toBe("pbibinduamb@gmail.com");
+      expect(isDevAuthActive()).toBe(true);
+
+      const currentUser = await authService.getCurrentUser();
+      expect(currentUser?.email).toBe("pbibinduamb@gmail.com");
+
+      const { data } = await authService.getSession();
+      expect(data.session?.user?.email).toBe("pbibinduamb@gmail.com");
+      expect(data.session?.user?.user_metadata?.name).toBe("bindu");
+    });
+
+    it("signs up successfully with requested Bindu credentials", async () => {
+      setDevAuthActive(false);
+
+      const ok = await authService.signUpWithPassword("pbibinduamb@gmail.com", "bindu@295", "http://localhost:8080/auth");
+      expect(ok.error).toBeNull();
+      expect(ok.data?.user?.email).toBe("pbibinduamb@gmail.com");
+      expect(isDevAuthActive()).toBe(true);
+    });
+
     it("signs out and clears dev bypass session", async () => {
       setDevAuthActive(true);
       expect(isDevAuthActive()).toBe(true);
@@ -116,4 +152,61 @@ describe("Ghostline Development Auth Bypass & Safety Hardening", () => {
       expect(store.getActiveUser()).toBe(DEV_USER.id);
     });
   });
+
+  describe("5. Profile Loading & Persistence Resilience", () => {
+    it("loads Bindu profile with correct username and display name", () => {
+      const profile = getActiveDevUserProfile(BINDU_USER.id);
+      expect(profile.username).toBe("bindu");
+      expect(profile.display_name).toBe("bindu");
+      expect(profile.bio).toBe("Ghostline user");
+      const initial = (profile.display_name || profile.username || "B").charAt(0).toUpperCase();
+      expect(initial).toBe("B");
+    });
+
+    it("persists updated profile to localStorage and in-memory cache", () => {
+      const updated = updateDevUserProfile(BINDU_USER.id, {
+        display_name: "Bindu P",
+        bio: "Updated privacy bio",
+      });
+
+      expect(updated.display_name).toBe("Bindu P");
+      expect(updated.bio).toBe("Updated privacy bio");
+
+      const fetched = getActiveDevUserProfile(BINDU_USER.id);
+      expect(fetched.display_name).toBe("Bindu P");
+      expect(fetched.bio).toBe("Updated privacy bio");
+    });
+
+    it("SupabaseProfileRepository resolves dev profile without remote database", async () => {
+      const mockSupabase = {
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: { message: "Database offline" } }),
+            }),
+          }),
+          update: () => ({
+            eq: () => ({
+              select: () => ({
+                single: async () => ({ data: null, error: { message: "Database offline" } }),
+              }),
+            }),
+          }),
+        }),
+      };
+
+      const repo = new SupabaseProfileRepository(mockSupabase as any);
+      const profile = await repo.getById(BINDU_USER.id);
+      expect(profile).toBeTruthy();
+      expect(profile?.username).toBe("bindu");
+
+      const saved = await repo.update(BINDU_USER.id, {
+        display_name: "Bindu Updated",
+        bio: "New Bio",
+      });
+      expect(saved.display_name).toBe("Bindu Updated");
+      expect(saved.bio).toBe("New Bio");
+    });
+  });
 });
+

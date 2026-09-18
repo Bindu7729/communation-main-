@@ -207,12 +207,12 @@ function AuthPage() {
               <h2 className="text-[28px] font-bold tracking-tight text-[#0B1B33]">
                 {mode === "signin" ? "Welcome back" : "Create an account"}
               </h2>
-              <p className="mt-2 text-[15px] text-[#64748B]">
-                {mode === "signin" ? "Enter your details to access your account." : "Start your private conversations today."}
-              </p>
-           </div>
+               <p className="mt-2 text-[15px] text-[#64748B]">
+                 {mode === "signin" ? "Enter your details to access your account." : "Start your private conversations today."}
+               </p>
+            </div>
 
-           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
              {/* Email */}
              <div className="relative group">
                <input

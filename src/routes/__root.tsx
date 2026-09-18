@@ -17,6 +17,7 @@ import { authService } from "@/lib/auth/session";
 import { PresenceProvider } from "@/components/presence-provider";
 import { CallProvider } from "@/components/calls/call-provider";
 import { DeviceSecurityProvider } from "@/components/device-security-provider";
+import { OfflineIndicator } from "@/components/offline-indicator";
 
 function NotFoundComponent() {
   return (
@@ -76,6 +77,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#2587F5" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "Ghostline" },
       { title: "Ghostline — Private Chats. Real Connections." },
       { name: "description", content: "Private messaging with peer-to-peer voice and video calls. Nothing recorded, nothing sold. Built for people who value privacy." },
       { property: "og:title", content: "Ghostline — Private Chats. Real Connections." },
@@ -92,6 +97,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap",
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "apple-touch-icon", href: "/favicon.ico" },
       { rel: "manifest", href: "/manifest.webmanifest" },
     ],
 
@@ -138,6 +144,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeBootstrap />
+      <OfflineIndicator />
       <DeviceSecurityProvider>
         <PresenceProvider>
           <CallProvider>

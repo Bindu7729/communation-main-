@@ -248,4 +248,73 @@ describe("E2EE-1: Cryptographic Identity & PreKey Infrastructure", () => {
       expect(mockPrekeyRepo.revokeDevicePrekeys).toHaveBeenCalledWith(mockDeviceId);
     });
   });
+
+  describe("SupabasePrekeyRepository Tests", () => {
+    it("performs upsert, OPK insertion, and consumption", async () => {
+      const { SupabasePrekeyRepository } = await import("@/lib/repositories/supabase/supabase-prekey-repository");
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === "device_prekeys") {
+            return {
+              upsert: vi.fn().mockResolvedValue({ error: null }),
+              select: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: {
+                  device_id: "dev-1",
+                  user_id: "user-1",
+                  identity_key: "ik-pub",
+                  signed_prekey: "spk-pub",
+                  signed_prekey_signature: "sig",
+                },
+                error: null,
+              }),
+              delete: vi.fn().mockReturnThis(),
+            };
+          }
+          if (table === "device_one_time_prekeys") {
+            return {
+              upsert: vi.fn().mockResolvedValue({ error: null }),
+              select: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              order: vi.fn().mockReturnThis(),
+              limit: vi.fn().mockReturnThis(),
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { id: "opk-id-1", key_id: 1, public_key: "opk-pub-1" },
+                error: null,
+              }),
+              delete: vi.fn().mockReturnThis(),
+            };
+          }
+          return {};
+        }),
+      };
+
+      const repo = new SupabasePrekeyRepository(mockSupabase as any);
+
+      // Upsert
+      await repo.upsertPrekeys({
+        device_id: "dev-1",
+        user_id: "user-1",
+        identity_key: "ik-pub",
+        signed_prekey: "spk-pub",
+        signed_prekey_signature: "sig",
+      });
+
+      // Insert OPKs
+      await repo.insertOneTimePrekeys("dev-1", [{ key_id: 1, public_key: "opk-pub-1" }]);
+
+      // Get Bundle
+      const bundle = await repo.getPublicBundle("dev-1");
+      expect(bundle).not.toBeNull();
+      expect(bundle?.device_id).toBe("dev-1");
+      expect(bundle?.one_time_prekey?.key_id).toBe(1);
+      expect(bundle?.one_time_prekey?.public_key).toBe("opk-pub-1");
+
+      // Revoke
+      await repo.revokeDevicePrekeys("dev-1");
+      expect(mockSupabase.from).toHaveBeenCalledWith("device_prekeys");
+      expect(mockSupabase.from).toHaveBeenCalledWith("device_one_time_prekeys");
+    });
+  });
 });

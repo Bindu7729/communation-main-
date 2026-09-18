@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * E2EE-2 boundary. The OpenE2EE SDK owns PQXDH, Double Ratchet state, skipped
  * keys, replay handling, serialization, and IndexedDB persistence. Ghostline
@@ -58,8 +57,8 @@ class GhostlineRelay implements ISignalProtocolRelayServer {
       message_type: envelope.messageType,
       timestamp: envelope.timestamp,
       client_message_id: envelope.clientMessageId,
-      urgent: envelope.urgent,
-      ephemeral: envelope.ephemeral,
+      urgent: (envelope as { urgent?: boolean }).urgent,
+      ephemeral: (envelope as { ephemeral?: boolean }).ephemeral,
     } });
     return { messageId: result.message_id, serverTimestamp: result.server_timestamp };
   }
@@ -70,7 +69,7 @@ class GhostlineRelay implements ISignalProtocolRelayServer {
       this.polling = true;
       try {
         const rows = await getPendingE2eeEnvelopes({ data: { protocol_device_id: this.requireDeviceId() } });
-        for (const row of rows) onEnvelope({ targetUserId: this.userId, targetDeviceId: this.requireDeviceId(), senderUserId: row.sender_user_id, senderDeviceId: row.sender_device_id, ciphertext: row.ciphertext, messageType: row.message_type, timestamp: row.client_timestamp, clientMessageId: row.client_message_id ?? undefined, urgent: row.urgent, ephemeral: row.ephemeral, id: row.id, serverTimestamp: row.server_timestamp });
+        for (const row of rows) onEnvelope({ targetUserId: this.userId, targetDeviceId: this.requireDeviceId(), senderUserId: row.sender_user_id, senderDeviceId: row.sender_device_id, ciphertext: row.ciphertext, messageType: row.message_type, timestamp: row.client_timestamp, clientMessageId: row.client_message_id ?? undefined, id: row.id, serverTimestamp: row.server_timestamp } as unknown as Envelope);
       } finally { this.polling = false; }
     };
     void poll();

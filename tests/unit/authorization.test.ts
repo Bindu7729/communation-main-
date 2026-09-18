@@ -1,5 +1,4 @@
 // @ts-nocheck
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach } from "vitest";
 import { AuthorizationPolicies } from "@/lib/auth/authorization";
 import { createServices, type AppServices } from "@/lib/services/create-services";

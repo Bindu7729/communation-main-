@@ -43,6 +43,8 @@ import { listFriendships, type FriendshipRow } from "@/lib/friendships.functions
 import { getDeviceKey, guessDeviceName } from "@/lib/device-key";
 import { usePresence } from "@/components/presence-provider";
 import { realtimeService } from "@/lib/realtime/create-realtime";
+import { authService } from "@/lib/auth/session";
+import { isDevAuthActive, getActiveDevUserProfile, DEV_USER } from "@/lib/auth/dev-auth";
 
 export const Route = createFileRoute("/_authenticated/chats/")({
   component: ChatsPage,
@@ -70,7 +72,17 @@ function ChatsPage() {
 
   const profile = useQuery({
     queryKey: ["my-profile"],
-    queryFn: () => fetchMyProfile(),
+    queryFn: async () => {
+      try {
+        return await fetchMyProfile();
+      } catch (e) {
+        if (isDevAuthActive() || import.meta.env.DEV) {
+          const u = await authService.getCurrentUser();
+          return getActiveDevUserProfile(u?.id ?? DEV_USER.id);
+        }
+        throw e;
+      }
+    },
   });
 
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -98,7 +110,16 @@ function ChatsPage() {
 
   const conversations = useQuery({
     queryKey: ["conversations"],
-    queryFn: () => fetchConversations(),
+    queryFn: async () => {
+      try {
+        return await fetchConversations();
+      } catch (e) {
+        if (isDevAuthActive() || import.meta.env.DEV) {
+          return [];
+        }
+        throw e;
+      }
+    },
     enabled: !!profile.data?.username,
     refetchInterval: 3000,
   });
@@ -304,6 +325,7 @@ function ChatsPage() {
                       navigate({
                         to: "/chats/$conversationId",
                         params: { conversationId: h.conversation_id },
+                        search: { highlightMessageId: h.message.id },
                       })
                     }
                     className="w-full rounded-xl px-3 py-2.5 text-left transition hover:bg-surface-2/70"
@@ -315,7 +337,7 @@ function ChatsPage() {
                       </p>
                     </div>
                     <p className="mt-0.5 line-clamp-2 text-[12px] text-muted-foreground">
-                      {h.message.body}
+                      <HighlightedSnippet text={h.message.body} query={trimmed} />
                     </p>
                   </button>
                 </li>
@@ -921,5 +943,25 @@ function NewGroupSheet({
         </button>
       </div>
     </div>
+  );
+}
+
+function HighlightedSnippet({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <span>{text}</span>;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  return (
+    <span>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark key={i} className="rounded-xs bg-primary/25 font-semibold text-primary px-0.5">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </span>
   );
 }

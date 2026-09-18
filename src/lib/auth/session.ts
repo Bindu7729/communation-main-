@@ -1,12 +1,25 @@
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import { lovable } from "@/integrations/lovable";
 import { supabase } from "@/integrations/supabase/client";
 import type { AuthUser } from "@/lib/domain/types";
 
-import { isDevAuthActive } from "./dev-auth";
+import {
+  isDevAuthActive,
+  isDevAuthBypassEnabled,
+  setDevAuthActive,
+  getDevSession,
+  DEV_USER,
+  BINDU_USER,
+  BINDU_USER_PROFILE,
+  getActiveDevUser,
+  setActiveDevUser,
+  notifyDevAuthChange,
+  onDevAuthStateChange,
+} from "./dev-auth";
+
+export { isDevAuthBypassEnabled };
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  if (isDevAuthActive()) return DEV_USER;
+  if (isDevAuthActive()) return getActiveDevUser();
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return null;
   return { id: data.user.id, email: data.user.email ?? null };
@@ -23,16 +36,82 @@ export type AuthChangeCallback = (
 ) => void | Promise<void>;
 
 export function onAuthStateChange(callback: AuthChangeCallback) {
-  // We should ideally merge DevAuth listeners here, but the tests test Supabase auth.
-  // Actually, wait, dev-auth-bypass tests sign in and check active state.
-  return supabase.auth.onAuthStateChange(callback as Parameters<typeof supabase.auth.onAuthStateChange>[0]);
+  const devSub = onDevAuthStateChange(callback);
+  const supSub = supabase.auth.onAuthStateChange(callback as Parameters<typeof supabase.auth.onAuthStateChange>[0]);
+
+  return {
+    data: {
+      subscription: {
+        unsubscribe: () => {
+          devSub.data.subscription.unsubscribe();
+          supSub.data.subscription.unsubscribe();
+        },
+      },
+    },
+  };
 }
 
 export async function signInWithPassword(email: string, password: string) {
+  const trimmed = email.trim().toLowerCase();
+  const isDev = isDevAuthBypassEnabled() || (typeof import.meta !== "undefined" && import.meta.env?.DEV);
+
+  if (isDev) {
+    if (trimmed === "pbibinduamb@gmail.com") {
+      if (password !== "bindu@295") {
+        return { data: { user: null, session: null }, error: { message: "Invalid login credentials." } };
+      }
+      setActiveDevUser(BINDU_USER, BINDU_USER_PROFILE);
+      setDevAuthActive(true);
+      const session = getDevSession(BINDU_USER);
+      notifyDevAuthChange("SIGNED_IN", session);
+      return { data: { user: session.user, session }, error: null };
+    }
+
+    if (trimmed === "dev@ghostline.local") {
+      setActiveDevUser(DEV_USER);
+      setDevAuthActive(true);
+      const session = getDevSession(DEV_USER);
+      notifyDevAuthChange("SIGNED_IN", session);
+      return { data: { user: session.user, session }, error: null };
+    }
+  }
+
   return supabase.auth.signInWithPassword({ email, password });
 }
 
 export async function signUpWithPassword(email: string, password: string, emailRedirectTo: string) {
+  const trimmed = email.trim().toLowerCase();
+  const isDev = isDevAuthBypassEnabled() || (typeof import.meta !== "undefined" && import.meta.env?.DEV);
+
+  if (isDev) {
+    if (trimmed === "pbibinduamb@gmail.com") {
+      setActiveDevUser(BINDU_USER, BINDU_USER_PROFILE);
+      setDevAuthActive(true);
+      const session = getDevSession(BINDU_USER);
+      notifyDevAuthChange("SIGNED_IN", session);
+      return { data: { user: session.user, session }, error: null };
+    }
+
+    // Generic dev signup support when cloud Supabase is not connected
+    const customUser: AuthUser = {
+      id: "00000000-0000-0000-0000-" + Math.floor(100000000000 + Math.random() * 900000000000).toString(),
+      email: trimmed,
+    };
+    const username = trimmed.split("@")[0] || "user";
+    const customProfile = {
+      id: customUser.id,
+      username,
+      display_name: username,
+      bio: "Ghostline user",
+      avatar_url: null,
+    };
+    setActiveDevUser(customUser, customProfile);
+    setDevAuthActive(true);
+    const session = getDevSession(customUser);
+    notifyDevAuthChange("SIGNED_IN", session);
+    return { data: { user: session.user, session }, error: null };
+  }
+
   return supabase.auth.signUp({
     email,
     password,
@@ -56,7 +135,7 @@ export async function signOut() {
         .update({ last_seen: new Date().toISOString() })
         .eq("id", session.user.id);
     }
-  } catch (err) {
+  } catch {
     // ignore
   }
 
@@ -80,10 +159,6 @@ export async function signInWithGithub(redirectUri: string) {
 export async function resendVerificationEmail(email: string, emailRedirectTo: string) {
   return supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo } });
 }
-
-import { isDevAuthBypassEnabled, setDevAuthActive, getDevSession, DEV_USER, notifyDevAuthChange } from "./dev-auth";
-
-export { isDevAuthBypassEnabled };
 
 export async function signInWithDevBypass() {
   if (!isDevAuthBypassEnabled()) throw new Error("Dev bypass disabled");

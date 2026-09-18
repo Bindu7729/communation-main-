@@ -13,6 +13,8 @@ import {
   removeFriendship,
 } from "@/lib/friendships.functions";
 import { openDirectConversation } from "@/lib/chat.functions";
+import { authService } from "@/lib/auth/session";
+import { isDevAuthActive, getActiveDevUserProfile, DEV_USER } from "@/lib/auth/dev-auth";
 
 export const Route = createFileRoute("/_authenticated/contacts")({
   component: ContactsPage,
@@ -40,8 +42,34 @@ function ContactsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to open chat"),
   });
 
-  const me = useQuery({ queryKey: ["me"], queryFn: () => fetchProfile() });
-  const friends = useQuery({ queryKey: ["friendships"], queryFn: () => fetchFriendships() });
+  const me = useQuery({
+    queryKey: ["me"],
+    queryFn: async () => {
+      try {
+        const p = await fetchProfile();
+        if (p) return p;
+      } catch (e) {
+        if (!isDevAuthActive()) throw e;
+      }
+      if (isDevAuthActive()) {
+        const u = await authService.getCurrentUser();
+        return getActiveDevUserProfile(u?.id ?? DEV_USER.id);
+      }
+      return null;
+    },
+  });
+
+  const friends = useQuery({
+    queryKey: ["friendships"],
+    queryFn: async () => {
+      try {
+        return await fetchFriendships();
+      } catch (e) {
+        if (isDevAuthActive()) return { friendships: [], profiles: {} };
+        throw e;
+      }
+    },
+  });
 
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Array<{ id: string; username: string | null; display_name: string | null }>>([]);

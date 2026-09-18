@@ -96,13 +96,21 @@ export type GroupInviteLink = {
   created_at: string;
 };
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: JsonValue | undefined }
+  | JsonValue[];
+
 export type GroupAdminAction = {
   id: string;
   conversation_id: string;
   actor_id: string;
   action: string;
   target_user_id: string | null;
-  metadata: Record<string, any> | null;
+  metadata: Record<string, JsonValue> | null;
   created_at: string;
 };
 
@@ -172,6 +180,8 @@ export type Star = {
   message_id: string;
   starred_at: string;
 };
+
+export type MessageDeliveryStatus = "draft" | "sending" | "sent" | "delivered" | "read" | "failed";
 
 export type MessageReceipt = {
   message_id: string;

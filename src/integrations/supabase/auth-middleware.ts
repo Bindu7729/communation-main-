@@ -31,20 +31,26 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+import { DEV_AUTH_HEADER_PREFIX, isDevAuthBypassEnabled, getActiveDevUserProfile } from '@/lib/auth/dev-auth'
+
 export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server(
   async ({ next }) => {
-    
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+    let SUPABASE_URL = process.env.SUPABASE_URL;
+    let SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
 
     if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-      const missing = [
-        ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
-        ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
-      ];
-      const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
-      console.error(`[Supabase] ${message}`);
-      throw new Error(message);
+      if (process.env.NODE_ENV !== "production" || (typeof import.meta !== "undefined" && import.meta.env?.DEV)) {
+        SUPABASE_URL = SUPABASE_URL || "https://unconfigured-dev.supabase.co";
+        SUPABASE_PUBLISHABLE_KEY = SUPABASE_PUBLISHABLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.local-dev-preview-key";
+      } else {
+        const missing = [
+          ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
+          ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
+        ];
+        const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
+        console.error(`[Supabase] ${message}`);
+        throw new Error(message);
+      }
     }
     
     const request = getRequest();
@@ -68,43 +74,72 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
       throw new AuthenticationError('Unauthorized: No token provided');
     }
 
-    if (token.split('.').length !== 3) {
-      throw new AuthenticationError('Unauthorized: Invalid token');
-    }
+    let authContext: {
+      supabase: ReturnType<typeof createClient<Database>>;
+      userId: string;
+      claims: Record<string, unknown>;
+    };
 
-    const supabase = createClient<Database>(
-      SUPABASE_URL!,
-      SUPABASE_PUBLISHABLE_KEY!,
-      {
-        global: {
-          fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY!),
-          headers: {
-            Authorization: `Bearer ${token}`,
+    if (token.startsWith(DEV_AUTH_HEADER_PREFIX) && isDevAuthBypassEnabled()) {
+      const devUserId = token.replace(DEV_AUTH_HEADER_PREFIX, "");
+      const devProfile = getActiveDevUserProfile(devUserId);
+      const supabase = createClient<Database>(
+        SUPABASE_URL!,
+        SUPABASE_PUBLISHABLE_KEY!,
+        {
+          auth: {
+            storage: undefined,
+            persistSession: false,
+            autoRefreshToken: false,
           },
         },
-        auth: {
-          storage: undefined,
-          persistSession: false,
-          autoRefreshToken: false,
-        },
+      );
+      authContext = {
+        supabase,
+        userId: devUserId,
+        claims: { sub: devUserId, email: devProfile.username },
+      };
+    } else {
+      if (token.split('.').length !== 3) {
+        throw new AuthenticationError('Unauthorized: Invalid token');
       }
-    );
 
-    const { data, error } = await supabase.auth.getClaims(token);
-    if (error || !data?.claims) {
-      throw new AuthenticationError('Unauthorized: Invalid token');
-    }
+      const supabase = createClient<Database>(
+        SUPABASE_URL!,
+        SUPABASE_PUBLISHABLE_KEY!,
+        {
+          global: {
+            fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY!),
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+          auth: {
+            storage: undefined,
+            persistSession: false,
+            autoRefreshToken: false,
+          },
+        },
+      );
 
-    if (!data.claims.sub) {
-      throw new AuthenticationError('Unauthorized: No user ID found in token');
+      const { data, error } = await supabase.auth.getClaims(token);
+      if (error || !data?.claims) {
+        throw new AuthenticationError('Unauthorized: Invalid token');
+      }
+
+      if (!data.claims.sub) {
+        throw new AuthenticationError('Unauthorized: No user ID found in token');
+      }
+
+      authContext = {
+        supabase,
+        userId: data.claims.sub,
+        claims: data.claims as Record<string, unknown>,
+      };
     }
 
     return next({
-      context: {
-        supabase,
-        userId: data.claims.sub,
-        claims: data.claims,
-      },
+      context: authContext,
     });
   },
 );

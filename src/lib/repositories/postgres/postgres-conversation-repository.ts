@@ -8,6 +8,7 @@ import type {
   GroupInviteLink,
   GroupMemberRole,
   GroupPermissions,
+  JsonValue,
   MemberRestriction,
 } from "@/lib/domain/types";
 import { DEFAULT_GROUP_PERMISSIONS } from "@/lib/auth/group-permissions";
@@ -429,7 +430,7 @@ export class PostgresConversationRepository implements ConversationRepository {
     actorId: string,
     action: string,
     targetUserId: string | null = null,
-    metadata: Record<string, any> | null = null,
+    metadata: Record<string, JsonValue> | null = null,
   ): Promise<void> {
     await this.db`
       INSERT INTO public.group_admin_actions (

@@ -1,6 +1,13 @@
 import type { AppSupabase } from "@/lib/infra/supabase/app-client";
 import { mapInfraError } from "@/lib/infra/supabase/map-error";
-import type { Conversation, ConversationMemberFlags } from "@/lib/domain/types";
+import type {
+  Conversation,
+  ConversationMemberFlags,
+  GroupAdminAction,
+  GroupInviteLink,
+  GroupPermissions,
+  MemberRestriction,
+} from "@/lib/domain/types";
 import type { ConversationRepository, MemberRow } from "@/lib/repositories/ports";
 
 export class SupabaseConversationRepository implements ConversationRepository {
@@ -50,23 +57,23 @@ export class SupabaseConversationRepository implements ConversationRepository {
     throw new Error("Supabase driver does not support group avatar updates");
   }
 
-  async getGroupPermissions(): Promise<any> {
+  async getGroupPermissions(): Promise<GroupPermissions | null> {
     throw new Error("Supabase driver does not support group permissions");
   }
 
-  async setGroupPermissions(): Promise<any> {
+  async setGroupPermissions(): Promise<GroupPermissions> {
     throw new Error("Supabase driver does not support group permissions");
   }
 
-  async getMemberRestriction(): Promise<any> {
+  async getMemberRestriction(): Promise<MemberRestriction | null> {
     throw new Error("Supabase driver does not support member restrictions");
   }
 
-  async listMemberRestrictions(): Promise<any[]> {
+  async listMemberRestrictions(): Promise<MemberRestriction[]> {
     throw new Error("Supabase driver does not support member restrictions");
   }
 
-  async setMemberRestriction(): Promise<any> {
+  async setMemberRestriction(): Promise<MemberRestriction> {
     throw new Error("Supabase driver does not support member restrictions");
   }
 
@@ -74,7 +81,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
     throw new Error("Supabase driver does not support member restrictions");
   }
 
-  async createInviteLink(): Promise<any> {
+  async createInviteLink(): Promise<GroupInviteLink> {
     throw new Error("Supabase driver does not support group invite links");
   }
 
@@ -82,11 +89,11 @@ export class SupabaseConversationRepository implements ConversationRepository {
     throw new Error("Supabase driver does not support group invite links");
   }
 
-  async listInviteLinks(): Promise<any[]> {
+  async listInviteLinks(): Promise<GroupInviteLink[]> {
     throw new Error("Supabase driver does not support group invite links");
   }
 
-  async joinViaInviteLink(): Promise<any> {
+  async joinViaInviteLink(): Promise<{ conversation_id: string }> {
     throw new Error("Supabase driver does not support group invite links");
   }
 
@@ -94,7 +101,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
     throw new Error("Supabase driver does not support group admin actions");
   }
 
-  async listAdminActions(): Promise<any[]> {
+  async listAdminActions(): Promise<GroupAdminAction[]> {
     throw new Error("Supabase driver does not support group admin actions");
   }
 

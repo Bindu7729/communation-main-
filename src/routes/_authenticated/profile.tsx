@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { getMyProfile, updateProfile } from "@/lib/profile.functions";
 import { authService } from "@/lib/auth/session";
+import { isDevAuthActive, getActiveDevUser, getActiveDevUserProfile, updateDevUserProfile, DEV_USER } from "@/lib/auth/dev-auth";
 
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
@@ -31,7 +32,31 @@ function ProfilePage() {
   const fetchProfile = useServerFn(getMyProfile);
   const saveProfile = useServerFn(updateProfile);
 
-  const profile = useQuery({ queryKey: ["me"], queryFn: () => fetchProfile() });
+  const profile = useQuery({
+    queryKey: ["me"],
+    queryFn: async () => {
+      try {
+        const p = await fetchProfile();
+        if (p) return p;
+      } catch (err) {
+        if (!isDevAuthActive()) throw err;
+      }
+      if (isDevAuthActive()) {
+        const user = getActiveDevUser();
+        const p = getActiveDevUserProfile(user?.id ?? DEV_USER.id);
+        return {
+          id: user?.id ?? DEV_USER.id,
+          username: p.username,
+          display_name: p.display_name,
+          bio: p.bio,
+          avatar_url: p.avatar_url,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+      }
+      return null;
+    },
+  });
 
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
@@ -44,7 +69,27 @@ function ProfilePage() {
   }, [profile.data]);
 
   const save = useMutation({
-    mutationFn: () => saveProfile({ data: { display_name: displayName, bio } }),
+    mutationFn: async () => {
+      if (isDevAuthActive()) {
+        const user = getActiveDevUser();
+        updateDevUserProfile(user.id, {
+          display_name: displayName,
+          bio,
+        });
+      }
+      try {
+        return await saveProfile({ data: { display_name: displayName, bio } });
+      } catch (err) {
+        if (isDevAuthActive()) {
+          return {
+            id: getActiveDevUser().id,
+            display_name: displayName,
+            bio,
+          };
+        }
+        throw err;
+      }
+    },
     onSuccess: () => {
       toast.success("Profile saved");
       qc.invalidateQueries({ queryKey: ["me"] });
@@ -59,7 +104,7 @@ function ProfilePage() {
     navigate({ to: "/auth", replace: true });
   };
 
-  const initial = (profile.data?.display_name ?? profile.data?.username ?? "?").charAt(0).toUpperCase();
+  const initial = (displayName || profile.data?.display_name || profile.data?.username || "B").charAt(0).toUpperCase();
 
   return (
     <AppShell>
@@ -80,7 +125,7 @@ function ProfilePage() {
             {initial}
           </div>
           <p className="mt-3 text-sm text-muted-foreground">
-            @{profile.data?.username ?? "…"}
+            @{profile.data?.username || (isDevAuthActive() ? getActiveDevUserProfile(getActiveDevUser().id).username : "bindu")}
           </p>
         </div>
 

@@ -19,6 +19,7 @@ import type {
   GroupPermissions,
   MemberRestriction,
   Message,
+  MessageEdit,
   Pin,
   Reaction,
 } from "@/lib/domain/types";
@@ -32,6 +33,7 @@ export type {
   GroupMemberRole,
   GroupPermissions,
   MemberRestriction,
+  MessageEdit,
 };
 export type MessageRow = Message;
 export type ReactionRow = Reaction;
@@ -252,12 +254,13 @@ export const listMessages = createServerFn({ method: "GET" })
       .object({
         conversation_id: z.string().uuid(),
         before: z.string().datetime().optional(),
+        after: z.string().datetime().optional(),
         limit: z.number().int().min(1).max(100).default(50),
       })
       .parse(data),
   )
   .handler(async ({ data, context }): Promise<MessageRow[]> => {
-    const messages = await app(context).messages.list(data.conversation_id, { before: data.before, limit: data.limit });
+    const messages = await app(context).messages.list(data.conversation_id, { before: data.before, after: data.after, limit: data.limit });
     if (messages.length && process.env.DATA_REPOSITORY_DRIVER?.toLowerCase() === "neon") {
       try {
         const attachments = await new AttachmentService(getPostgresClient(), context.userId).forMessages(messages.map((m) => m.id));
@@ -374,6 +377,11 @@ export const getMessageInfo = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => z.object({ message_id: z.string().uuid() }).parse(data))
   .handler(async ({ data, context }) => app(context).messages.getInfo(data.message_id));
+
+export const listMessageEdits = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ message_id: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }): Promise<MessageEdit[]> => app(context).messages.listEdits(data.message_id));
 
 export const searchMessagesInConversation = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -530,6 +538,20 @@ export const markRead = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) =>
     app(context).messages.markRead(data.conversation_id, data.up_to_created_at),
+  );
+
+export const markDelivered = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, requireNotFrozen])
+  .inputValidator((data: unknown) =>
+    z
+      .object({
+        conversation_id: z.string().uuid(),
+        message_ids: z.array(z.string().uuid()).max(100),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data, context }) =>
+    app(context).messages.markDelivered(data.conversation_id, data.message_ids),
   );
 
 export const listMyMessageReceipts = createServerFn({ method: "GET" })

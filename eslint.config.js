@@ -6,7 +6,7 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi", "src/integrations/supabase/previewAuthStorage.ts"] },
+  { ignores: ["dist", ".output", ".vinxi", "scratch", "src/integrations/supabase/previewAuthStorage.ts"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
@@ -37,6 +37,14 @@ export default tseslint.config(
     },
   },
   eslintPluginPrettier,
+  {
+    files: ["tests/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/ban-ts-comment": "off",
+      "@typescript-eslint/no-explicit-any": "off",
+      "no-irregular-whitespace": "off",
+    },
+  },
   {
     rules: {
       "prettier/prettier": "off",

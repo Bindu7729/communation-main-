@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { listFriendships, type FriendshipRow, type FriendProfile } from "@/lib/friendships.functions";
 import { getMyProfile } from "@/lib/profile.functions";
 import { realtimeService } from "@/lib/realtime/create-realtime";
+import { authService } from "@/lib/auth/session";
+import { isDevAuthActive, getActiveDevUserProfile, DEV_USER } from "@/lib/auth/dev-auth";
 
 type FriendRequestsContextValue = {
   incomingRequests: FriendshipRow[];
@@ -33,13 +35,32 @@ export function FriendRequestsProvider({ children }: { children: ReactNode }) {
 
   const meQuery = useQuery({
     queryKey: ["me"],
-    queryFn: () => fetchMyProfile(),
+    queryFn: async () => {
+      try {
+        const p = await fetchMyProfile();
+        if (p) return p;
+      } catch (e) {
+        if (!isDevAuthActive()) throw e;
+      }
+      if (isDevAuthActive()) {
+        const u = await authService.getCurrentUser();
+        return getActiveDevUserProfile(u?.id ?? DEV_USER.id);
+      }
+      return null;
+    },
   });
   const meId = meQuery.data?.id;
 
   const friendsQuery = useQuery({
     queryKey: ["friendships"],
-    queryFn: () => fetchFriendships(),
+    queryFn: async () => {
+      try {
+        return await fetchFriendships();
+      } catch (e) {
+        if (isDevAuthActive()) return { friendships: [], profiles: {} };
+        throw e;
+      }
+    },
     enabled: !!meId,
   });
 

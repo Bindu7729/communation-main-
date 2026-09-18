@@ -1,6 +1,6 @@
 import { AuthorizationError, NotFoundError, ValidationError } from "@/lib/domain/errors";
 import { escapeIlike } from "@/lib/domain/search";
-import type { ChatProfile, GlobalSearchHit, Message } from "@/lib/domain/types";
+import type { ChatProfile, GlobalSearchHit, Message, MessageEdit } from "@/lib/domain/types";
 import type { RateLimiter } from "@/lib/ports/rate-limit";
 import type { ConversationRepository, MessageRepository, ProfileRepository } from "@/lib/repositories/ports";
 import type { IConversationPolicy, IMessagePolicy } from "@/lib/auth/authorization";
@@ -17,7 +17,7 @@ export class MessageService {
     private readonly messagePolicy?: IMessagePolicy,
   ) {}
 
-  async list(conversationId: string, opts: { before?: string; limit: number }): Promise<Message[]> {
+  async list(conversationId: string, opts: { before?: string; after?: string; limit: number }): Promise<Message[]> {
     if (this.conversationPolicy) {
       await this.conversationPolicy.requireMembership(this.userId, conversationId);
     }
@@ -188,6 +188,19 @@ export class MessageService {
     };
   }
 
+  async listEdits(messageId: string): Promise<MessageEdit[]> {
+    if (this.messagePolicy) {
+      await this.messagePolicy.requireAccess(this.userId, messageId);
+    } else {
+      const msg = await this.messages.getById(messageId);
+      if (!msg) throw new NotFoundError("Not found");
+      if (this.conversationPolicy) {
+        await this.conversationPolicy.requireMembership(this.userId, msg.conversation_id);
+      }
+    }
+    return this.messages.listEdits(messageId);
+  }
+
   async searchInConversation(conversationId: string, q: string): Promise<Message[]> {
     if (this.conversationPolicy) {
       await this.conversationPolicy.requireMembership(this.userId, conversationId);
@@ -238,5 +251,15 @@ export class MessageService {
     }
     const ids = await this.messages.listIds(conversationId, { limit: 100, senderId: this.userId });
     return this.messages.listReceiptsForMessages(ids);
+  }
+
+  async markDelivered(conversationId: string, messageIds: string[]): Promise<{ ok: true }> {
+    if (messageIds.length === 0) return { ok: true };
+    if (this.conversationPolicy) {
+      await this.conversationPolicy.requireMembership(this.userId, conversationId);
+    }
+    const now = new Date().toISOString();
+    await this.messages.markReceiptsDelivered(this.userId, messageIds, now);
+    return { ok: true };
   }
 }

@@ -3,17 +3,41 @@ import type { Attachment, Message } from "@/lib/domain/types";
 import { AuthorizationError, NotFoundError, ValidationError } from "@/lib/domain/errors";
 import type { DbClient } from "@/lib/infra/postgres/client";
 
-const TYPES = new Map([
-  ["image/jpeg", ["jpg", "jpeg"]], ["image/png", ["png"]], ["image/webp", ["webp"]],
-  ["image/gif", ["gif"]], ["application/pdf", ["pdf"]], ["text/plain", ["txt"]],
+export const SUPPORTED_ATTACHMENT_TYPES = new Map<string, string[]>([
+  ["image/jpeg", ["jpg", "jpeg"]],
+  ["image/png", ["png"]],
+  ["image/webp", ["webp"]],
+  ["image/gif", ["gif"]],
+  ["application/pdf", ["pdf"]],
+  ["text/plain", ["txt"]],
+  ["audio/webm", ["webm"]],
+  ["audio/ogg", ["ogg", "oga"]],
+  ["audio/mpeg", ["mp3"]],
+  ["audio/wav", ["wav"]],
+  ["audio/mp4", ["m4a", "mp4"]],
+  ["video/mp4", ["mp4"]],
+  ["video/webm", ["webm"]],
+  ["video/quicktime", ["mov"]],
+  ["application/zip", ["zip"]],
+  ["application/x-zip-compressed", ["zip"]],
+  ["application/msword", ["doc"]],
+  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", ["docx"]],
+  ["application/vnd.ms-excel", ["xls"]],
+  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ["xlsx"]],
 ]);
+const TYPES = SUPPORTED_ATTACHMENT_TYPES;
 const MAX_NAME = 160;
 const expirySeconds = 300;
 type Stored = Attachment & { storage_key: string };
 
 function config() {
   const account = process.env.R2_ACCOUNT_ID, key = process.env.R2_ACCESS_KEY_ID, secret = process.env.R2_SECRET_ACCESS_KEY;
-  if (!account || !key || !secret) throw new Error("R2 attachment signing is not configured");
+  if (!account || !key || !secret) {
+    if (process.env.NODE_ENV === "test" || process.env.ALLOW_MOCK_STORAGE === "true") {
+      return { account: "test-account", key: "test-key", secret: "test-secret-at-least-32-chars-long", max: 10 * 1024 * 1024 };
+    }
+    throw new Error("R2 attachment signing is not configured");
+  }
   return { account, key, secret, max: Number(process.env.MAX_ATTACHMENT_SIZE_BYTES ?? 10 * 1024 * 1024) };
 }
 function safeFileName(name: string) {

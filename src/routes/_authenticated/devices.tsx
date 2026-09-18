@@ -26,7 +26,7 @@ function DevicesPage() {
     mutationFn: (device_id: string) => doRevoke({ data: { device_id } }),
     onMutate: async (device_id) => {
       await qc.cancelQueries({ queryKey: ["devices"] });
-      const previous = qc.getQueryData<any[]>(["devices"]);
+      const previous = qc.getQueryData<Array<{ id: string; revoked_at?: string | null }>>(["devices"]);
       if (previous) {
         qc.setQueryData(
           ["devices"],

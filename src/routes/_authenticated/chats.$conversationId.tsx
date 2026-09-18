@@ -32,6 +32,8 @@ import {
   UserPlus,
   LogOut,
   Loader2,
+  AlertCircle,
+  History,
   Moon,
   UsersRound,
   User,
@@ -40,16 +42,25 @@ import {
   Archive,
   ArchiveRestore,
   ShieldBan,
+  Paperclip,
+  Mic,
+  File as FileLucideIcon,
 } from "lucide-react";
 import {
   getConversation,
   listMessages,
   sendMessage,
+  startAttachmentUpload,
+  confirmAttachmentUpload,
+  getAttachmentAccessUrl,
+  sendAttachmentMessage,
   markRead,
+  markDelivered,
   listMyMessageReceipts,
   hideMessageForMe,
   deleteMessageForEveryone,
   editMessage,
+  listMessageEdits,
   toggleReaction,
   listReactions,
   listPins,
@@ -72,6 +83,7 @@ import {
   setConversationFlags,
   blockContact,
   type MessageRow,
+  type MessageEdit,
   type ChatProfile,
   type ConversationSummary,
   type GroupMemberRole,
@@ -83,10 +95,14 @@ import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { usePresence } from "@/components/presence-provider";
 import { useCalls } from "@/components/calls/call-provider";
 import { useVanishMode } from "@/hooks/use-vanish-mode";
+import { AttachmentRenderer, formatFileSize } from "@/components/chat/attachment-renderer";
 
 import { EphemeralMessageBubble } from "@/components/chat/ephemeral-message-bubble";
 
 export const Route = createFileRoute("/_authenticated/chats/$conversationId")({
+  validateSearch: (search: Record<string, unknown>): { highlightMessageId?: string } => ({
+    highlightMessageId: typeof search.highlightMessageId === "string" ? search.highlightMessageId : undefined,
+  }),
   component: ChatRoom,
 });
 
@@ -95,8 +111,45 @@ type MenuState = { id: string; mine: boolean; x: number; y: number; msg: Message
 
 const QUICK_EMOJI = ["❤️", "😂", "😮", "😢", "👍", "🔥"];
 
+function HighlightMatches({
+  text,
+  query,
+  isCurrentHit,
+}: {
+  text: string;
+  query: string;
+  isCurrentHit?: boolean;
+}) {
+  if (!query || !query.trim()) return <>{text}</>;
+  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.trim().toLowerCase() ? (
+          <mark
+            key={i}
+            className={[
+              "rounded-xs px-0.5 transition-colors font-semibold",
+              isCurrentHit
+                ? "bg-amber-400 text-black shadow-xs font-bold"
+                : "bg-primary/35 text-foreground",
+            ].join(" ")}
+          >
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 function ChatRoom() {
   const { conversationId } = Route.useParams();
+  const { highlightMessageId } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -110,8 +163,14 @@ function ChatRoom() {
   const fetchConversationsList = useServerFn(listConversations);
   const fetchMsgsByIds = useServerFn(getMessagesByIds);
   const fetchMessageInfo = useServerFn(getMessageInfo);
+  const fetchEdits = useServerFn(listMessageEdits);
+  const fetchAccessUrl = useServerFn(getAttachmentAccessUrl);
+  const doStartAttachment = useServerFn(startAttachmentUpload);
+  const doConfirmAttachment = useServerFn(confirmAttachmentUpload);
+  const doSendAttachment = useServerFn(sendAttachmentMessage);
   const doSend = useServerFn(sendMessage);
   const doMarkRead = useServerFn(markRead);
+  const doMarkDelivered = useServerFn(markDelivered);
   const doHide = useServerFn(hideMessageForMe);
   const doDeleteAll = useServerFn(deleteMessageForEveryone);
   const doEdit = useServerFn(editMessage);
@@ -174,6 +233,8 @@ function ChatRoom() {
   const [menu, setMenu] = useState<MenuState>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; mine: boolean } | null>(null);
   const [infoFor, setInfoFor] = useState<string | null>(null);
+  const [editsFor, setEditsFor] = useState<string | null>(null);
+  const [activePinIdx, setActivePinIdx] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<MessageRow | null>(null);
   const [editing, setEditing] = useState<MessageRow | null>(null);
@@ -190,6 +251,15 @@ function ChatRoom() {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"clear" | "block" | "leave" | null>(null);
+
+  const [stagedFiles, setStagedFiles] = useState<Array<{ file: File; id: string; previewUrl?: string }>>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const keyboardInset = useKeyboardInset();
@@ -324,11 +394,27 @@ function ChatRoom() {
 
   const rendered = useMemo(() => {
     const server = (messages.data ?? []).filter((m) => !locallyGone.has(m.id));
-    const seen = new Set(server.map((m) => m.client_id).filter(Boolean) as string[]);
-    const pending = optimistic.filter((m) => !(m.client_id && seen.has(m.client_id)));
-    return [...server, ...pending].sort((a, b) =>
-      a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0,
-    );
+    const seenClientIds = new Set(server.map((m) => m.client_id).filter(Boolean) as string[]);
+    const seenIds = new Set(server.map((m) => m.id));
+    const pending = optimistic.filter((m) => {
+      if (m.client_id && seenClientIds.has(m.client_id)) return false;
+      if (seenIds.has(m.id)) return false;
+      return true;
+    });
+    // Deduplicate across server & pending by id and client_id
+    const combined = [...server, ...pending];
+    const uniqueMap = new Map<string, OptimisticMsg>();
+    for (const m of combined) {
+      const key = m.client_id || m.id;
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, m);
+      }
+    }
+    return Array.from(uniqueMap.values()).sort((a, b) => {
+      const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return a.id.localeCompare(b.id);
+    });
   }, [messages.data, optimistic, locallyGone]);
 
   const messageById = useMemo(() => {
@@ -403,9 +489,12 @@ function ChatRoom() {
     [conversationId, qc],
   );
 
-  // Realtime
+  // Realtime & Connection Management
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [channelReady, setChannelReady] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const wasDisconnectedRef = useRef(false);
+  const deliveredAckedRef = useRef<Set<string>>(new Set());
 
   // ── Vanish Mode (ephemeral messaging — zero Neon writes) ──────────────
   const myDisplayName = me.data
@@ -447,7 +536,17 @@ function ChatRoom() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
-        () => {
+        (payload) => {
+          const newMsg = payload.new as MessageRow | undefined;
+          if (newMsg?.id && newMsg.sender_id !== meId && !deliveredAckedRef.current.has(newMsg.id)) {
+            deliveredAckedRef.current.add(newMsg.id);
+            doMarkDelivered({
+              data: {
+                conversation_id: conversationId,
+                message_ids: [newMsg.id],
+              },
+            }).catch((err) => console.error("[Ghostline] realtime delivery ack error:", err));
+          }
           qc.invalidateQueries({ queryKey: ["messages", conversationId] });
           qc.invalidateQueries({ queryKey: ["conversations"] });
         },
@@ -533,6 +632,18 @@ function ChatRoom() {
         if (status === "SUBSCRIBED") {
           await channel.track({ user_id: meId, at: Date.now() });
           setChannelReady(true);
+          setIsReconnecting(false);
+          if (wasDisconnectedRef.current) {
+            wasDisconnectedRef.current = false;
+            // Incremental catchup after reconnection
+            qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+            qc.invalidateQueries({ queryKey: ["receipts", conversationId] });
+            qc.invalidateQueries({ queryKey: ["conversations"] });
+          }
+        } else if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          wasDisconnectedRef.current = true;
+          setChannelReady(false);
+          setIsReconnecting(true);
         }
       });
 
@@ -540,9 +651,27 @@ function ChatRoom() {
     return () => {
       channelRef.current = null;
       setChannelReady(false);
+      setIsReconnecting(false);
       supabase.removeChannel(channel);
     };
-  }, [conversationId, meId, qc, collapseAndForget]);
+  }, [conversationId, meId, qc, collapseAndForget, doMarkDelivered]);
+
+  // Automatically acknowledge delivery for incoming peer messages in conversation
+  useEffect(() => {
+    if (!messages.data || !meId) return;
+    const unacked = messages.data
+      .filter((m) => m.sender_id !== meId && !deliveredAckedRef.current.has(m.id))
+      .map((m) => m.id);
+    if (unacked.length > 0) {
+      for (const id of unacked) deliveredAckedRef.current.add(id);
+      doMarkDelivered({
+        data: {
+          conversation_id: conversationId,
+          message_ids: unacked.slice(0, 100),
+        },
+      }).catch((err) => console.error("[Ghostline] markDelivered error:", err));
+    }
+  }, [messages.data, meId, conversationId, doMarkDelivered]);
 
   useEffect(() => {
     if (!typingOther) return;
@@ -570,10 +699,12 @@ function ChatRoom() {
     doMarkRead({ data: { conversation_id: conversationId, up_to_created_at: upTo } })
       .then(() => qc.invalidateQueries({ queryKey: ["conversations"] }))
       .catch((err) => console.error("[Ghostline] markRead error:", err));
-  }, [rendered.length, conversationId, doMarkRead, qc]);
+  }, [rendered, conversationId, doMarkRead, qc]);
 
   const send = useMutation({
-    mutationFn: async (body: string) => {
+    mutationFn: async (payload: string | { body: string; reply_to_id?: string | null }) => {
+      const body = typeof payload === "string" ? payload : payload.body;
+      const parentId = typeof payload === "string" ? (replyTo?.id ?? null) : (payload.reply_to_id ?? null);
       const client_id = crypto.randomUUID();
       const pending: OptimisticMsg = {
         id: client_id,
@@ -584,14 +715,13 @@ function ChatRoom() {
         created_at: new Date().toISOString(),
         edited_at: null,
         deleted_at: null,
-        reply_to_id: replyTo?.id ?? null,
+        reply_to_id: parentId,
         forwarded_from_id: null,
         is_vanish: vanishActive,
         pending: true,
       };
       setOptimistic((prev) => [...prev, pending]);
-      const parentId = replyTo?.id ?? null;
-      setReplyTo(null);
+      if (typeof payload === "string") setReplyTo(null);
       try {
         const row = await doSend({
           data: {
@@ -613,6 +743,14 @@ function ChatRoom() {
       }
     },
   });
+
+  const retryFailedMessage = useCallback(
+    (failedMsg: OptimisticMsg) => {
+      setOptimistic((prev) => prev.filter((m) => m.client_id !== failedMsg.client_id));
+      send.mutate({ body: failedMsg.body, reply_to_id: failedMsg.reply_to_id });
+    },
+    [send],
+  );
 
   const commitEdit = useMutation({
     mutationFn: async ({ id, body }: { id: string; body: string }) => {
@@ -648,15 +786,161 @@ function ChatRoom() {
   }, [text]);
 
 
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+
+    const newStaged: Array<{ file: File; id: string; previewUrl?: string }> = [];
+    for (const f of files) {
+      if (f.size > 10 * 1024 * 1024) {
+        showToast(`${f.name} exceeds 10MB limit`);
+        continue;
+      }
+      newStaged.push({
+        file: f,
+        id: crypto.randomUUID(),
+        previewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined,
+      });
+    }
+
+    setStagedFiles((prev) => [...prev, ...newStaged].slice(0, 10));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const startVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start(250);
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("[Ghostline] Audio recording error:", err);
+      showToast("Microphone access denied");
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== "inactive") {
+      rec.stop();
+      rec.stream.getTracks().forEach((t) => t.stop());
+    }
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const stopAndSendVoiceRecording = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    const rec = mediaRecorderRef.current;
+    if (!rec) return;
+
+    rec.onstop = () => {
+      rec.stream.getTracks().forEach((t) => t.stop());
+      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const audioFile = new File([audioBlob], `voice-note-${Date.now()}.webm`, { type: "audio/webm" });
+      setStagedFiles((prev) => [
+        ...prev,
+        {
+          file: audioFile,
+          id: crypto.randomUUID(),
+          previewUrl: URL.createObjectURL(audioBlob),
+        },
+      ]);
+    };
+
+    rec.stop();
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const handleSendWithAttachments = async (body: string) => {
+    if (stagedFiles.length === 0) return;
+    setIsUploading(true);
+    setText("");
+    const filesToUpload = [...stagedFiles];
+    setStagedFiles([]);
+
+    try {
+      const uploadedIds: string[] = [];
+      for (const item of filesToUpload) {
+        const startRes = await doStartAttachment({
+          data: {
+            conversation_id: conversationId,
+            filename: item.file.name,
+            mime_type: item.file.type || "application/octet-stream",
+            file_size: item.file.size,
+          },
+        });
+        const putRes = await fetch(startRes.upload_url, {
+          method: "PUT",
+          headers: { "Content-Type": item.file.type || "application/octet-stream" },
+          body: item.file,
+        });
+        if (!putRes.ok) throw new Error(`Upload failed with status ${putRes.status}`);
+
+        await doConfirmAttachment({ data: { attachment_id: startRes.attachment.id } });
+        uploadedIds.push(startRes.attachment.id);
+      }
+
+      await doSendAttachment({
+        data: {
+          conversation_id: conversationId,
+          body,
+          attachment_ids: uploadedIds,
+        },
+      });
+      qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (err) {
+      console.error("[Ghostline] Attachment send error:", err);
+      showToast(err instanceof Error ? err.message : "Failed to upload attachment");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const submit = () => {
     const body = text.trim();
-    if (!body) return;
+    if (!body && stagedFiles.length === 0) return;
 
     if (editing) {
+      if (!body) return;
       commitEdit.mutate({ id: editing.id, body });
       setText("");
       return;
     }
+
+    if (stagedFiles.length > 0) {
+      handleSendWithAttachments(body);
+      return;
+    }
+
+    if (!body) return;
     setText("");
     send.mutate(body);
   };
@@ -684,21 +968,64 @@ function ChatRoom() {
     }
   };
 
-  const scrollToMessage = (id: string) => {
-    const el = bubbleRefs.current.get(id);
-    if (!el) {
-      showToast("Message not in view — scroll up");
-      return;
+  const scrollToMessage = useCallback(
+    async (id: string) => {
+      let el = bubbleRefs.current.get(id);
+      if (!el) {
+        try {
+          const rows = await fetchMsgsByIds({ data: { ids: [id] } });
+          if (rows.length > 0 && rows[0]) {
+            const target = rows[0];
+            const oldest = rendered.length ? rendered[0] : null;
+            if (oldest && target.created_at < oldest.created_at) {
+              const older = await fetchMessages({
+                data: { conversation_id: conversationId, before: oldest.created_at, limit: 50 },
+              });
+              if (older.length > 0) {
+                qc.setQueryData<MessageRow[]>(["messages", conversationId], (prev) => [
+                  ...(prev ?? []),
+                  ...older,
+                ]);
+              }
+            }
+          }
+        } catch {
+          // ignore lookup errors
+        }
+        await new Promise((r) => setTimeout(r, 120));
+        el = bubbleRefs.current.get(id);
+      }
+      if (!el) {
+        showToast("Message not in view — scroll up");
+        return;
+      }
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.animate(
+        [
+          {
+            backgroundColor: "rgba(59, 130, 246, 0.25)",
+            boxShadow: "0 0 0 3px rgba(59, 130, 246, 0.5), 0 0 20px rgba(59, 130, 246, 0.3)",
+            borderRadius: "1rem",
+          },
+          {
+            backgroundColor: "transparent",
+            boxShadow: "0 0 0 0 transparent",
+          },
+        ],
+        { duration: 1600, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+      );
+    },
+    [conversationId, fetchMessages, fetchMsgsByIds, qc, rendered],
+  );
+
+  useEffect(() => {
+    if (highlightMessageId) {
+      const timer = setTimeout(() => {
+        scrollToMessage(highlightMessageId);
+      }, 350);
+      return () => clearTimeout(timer);
     }
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.animate(
-      [
-        { boxShadow: "0 0 0 3px oklch(0.92 0.19 100 / 0.6)" },
-        { boxShadow: "0 0 0 0 transparent" },
-      ],
-      { duration: 1400, easing: "ease-out" },
-    );
-  };
+  }, [highlightMessageId, scrollToMessage]);
 
   const openMenu = (e: React.MouseEvent, m: MessageRow) => {
     e.preventDefault();
@@ -851,7 +1178,15 @@ function ChatRoom() {
               </span>
             </p>
             <p className="truncate text-[11px] text-muted-foreground">
-              {conv.data?.conversation.kind === "group" ? (
+              {isReconnecting ? (
+                <span className="inline-flex items-center gap-1 text-amber-400 font-medium">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" /> Reconnecting...
+                </span>
+              ) : !channelReady ? (
+                <span className="inline-flex items-center gap-1 text-muted-foreground">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" /> Connecting...
+                </span>
+              ) : conv.data?.conversation.kind === "group" ? (
                 <span>{conv.data.members.length} member{conv.data.members.length === 1 ? "" : "s"}</span>
               ) : (
                 <>
@@ -1186,27 +1521,40 @@ function ChatRoom() {
         </div>
       )}
 
-      {pinnedMessages.length > 0 && !pinsCollapsed && (
-        <button
-          onClick={() => scrollToMessage(pinnedMessages[0].id)}
-          className="glass sticky top-[68px] z-20 flex w-full items-center gap-2 border-b border-border px-4 py-2 text-left"
-        >
-          <Pin className="h-4 w-4 text-primary" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Pinned · {pinnedMessages.length}
-            </p>
-            <p className="truncate text-xs">{pinnedMessages[0].body}</p>
-          </div>
-          <span
-            onClick={(e) => { e.stopPropagation(); setPinsCollapsed(true); }}
-            className="grid h-7 w-7 cursor-pointer place-items-center rounded-full hover:bg-foreground/10"
-            aria-label="Hide pins"
+      {pinnedMessages.length > 0 && !pinsCollapsed && (() => {
+        const totalPins = pinnedMessages.length;
+        const currentPin = pinnedMessages[activePinIdx % totalPins] ?? pinnedMessages[0];
+        const currentIdx = (activePinIdx % totalPins) + 1;
+        return (
+          <button
+            onClick={() => {
+              scrollToMessage(currentPin.id);
+              if (totalPins > 1) setActivePinIdx((prev) => (prev + 1) % totalPins);
+            }}
+            className="glass sticky top-[68px] z-20 flex w-full items-center gap-2 border-b border-border px-4 py-2 text-left cursor-pointer hover:bg-surface-2/40 transition"
           >
-            <X className="h-3.5 w-3.5" />
-          </span>
-        </button>
-      )}
+            <Pin className="h-4 w-4 text-primary shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                <span>Pinned</span>
+                {totalPins > 1 && (
+                  <span className="font-semibold text-primary">
+                    ({currentIdx} of {totalPins} — click to cycle)
+                  </span>
+                )}
+              </p>
+              <p className="truncate text-xs font-medium">{currentPin.body}</p>
+            </div>
+            <span
+              onClick={(e) => { e.stopPropagation(); setPinsCollapsed(true); }}
+              className="grid h-7 w-7 cursor-pointer place-items-center rounded-full hover:bg-foreground/10"
+              aria-label="Hide pins"
+            >
+              <X className="h-3.5 w-3.5" />
+            </span>
+          </button>
+        );
+      })()}
 
       {selectMode && (
         <div className="glass sticky top-[68px] z-20 flex items-center gap-2 border-b border-border px-3 py-2">
@@ -1335,23 +1683,67 @@ function ChatRoom() {
                         <p className="line-clamp-2">{parent.body}</p>
                       </button>
                     )}
-                    <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                    {m.attachments && m.attachments.length > 0 && (
+                      <AttachmentRenderer
+                        attachments={m.attachments}
+                        mine={mine}
+                        fetchAccessUrl={fetchAccessUrl}
+                      />
+                    )}
+                    {m.body && (
+                      <p className="whitespace-pre-wrap break-words">
+                        <HighlightMatches text={m.body} query={searchOpen ? searchQ : ""} isCurrentHit={isSearchHit} />
+                      </p>
+                    )}
                     <div className={["mt-0.5 flex items-center justify-end gap-1 text-[10px]", mine ? "opacity-70" : "text-muted-foreground"].join(" ")}>
                       {isPinned && <Pin className="h-2.5 w-2.5" />}
                       {isStarred && <Star className="h-2.5 w-2.5 fill-current" />}
-                      {m.edited_at && <span className="italic">edited</span>}
+                      {m.edited_at && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditsFor(m.id);
+                          }}
+                          className="italic hover:underline cursor-pointer opacity-80 hover:opacity-100 transition"
+                          title={`Edited ${new Date(m.edited_at).toLocaleString()}. Click to view revision history.`}
+                        >
+                          edited
+                        </button>
+                      )}
                       <span>
                         {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                       {mine && (
-                        (m as OptimisticMsg).pending ? (
-                          <span>…</span>
+                        (m as OptimisticMsg).failed ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              retryFailedMessage(m as OptimisticMsg);
+                            }}
+                            className="inline-flex items-center gap-0.5 rounded bg-destructive/20 px-1.5 py-0.5 text-[9px] font-semibold text-destructive hover:bg-destructive/30 transition cursor-pointer"
+                            title="Failed to send. Click to retry."
+                          >
+                            <AlertCircle className="h-2.5 w-2.5" />
+                            <span>Retry</span>
+                          </button>
+                        ) : (m as OptimisticMsg).pending ? (
+                          <span title="Sending...">
+                            <Loader2 className="h-2.5 w-2.5 animate-spin opacity-70" />
+                          </span>
                         ) : receipt?.read_at ? (
-                          <CheckCheck className="h-3 w-3" />
+                          <span title="Read">
+                            <CheckCheck className="h-3 w-3 text-sky-400 font-bold" />
+                          </span>
                         ) : receipt?.delivered_at ? (
-                          <Check className="h-3 w-3" />
+                          <span title="Delivered">
+                            <CheckCheck className="h-3 w-3 opacity-80" />
+                          </span>
                         ) : (
-                          <Check className="h-3 w-3 opacity-50" />
+                          <span title="Sent">
+                            <Check className="h-3 w-3 opacity-60" />
+                          </span>
                         )
                       )}
                     </div>
@@ -1429,45 +1821,142 @@ function ChatRoom() {
               </button>
             </div>
           )}
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={composerRef}
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                if (!vanishActive) notifyTyping();
-                const el = e.currentTarget;
-                el.style.height = "auto";
-                el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
-              }}
-              onFocus={() => {
-                setTimeout(() => {
-                  scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight });
-                }, 250);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
-              }}
-              rows={1}
-              placeholder={vanishActive ? "Vanish message..." : editing ? "Edit message" : "Message"}
-              className={[
-                "max-h-32 min-h-11 flex-1 resize-none rounded-3xl px-4 py-3 text-sm outline-none transition-colors",
-                "glass",
-              ].join(" ")}
-              aria-label={vanishActive ? "Type a vanish message" : "Type a message"}
-            />
-            <button
-              type="submit"
-              disabled={!text.trim() || (!vanishActive && (send.isPending || commitEdit.isPending))}
-              className={[
-                "grid h-11 w-11 place-items-center rounded-full text-primary-foreground transition disabled:opacity-40",
-                "bg-primary glow-primary",
-              ].join(" ")}
-              aria-label={editing ? "Save" : vanishActive ? "Send vanish message" : "Send"}
-            >
-              {vanishActive ? <Moon className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-            </button>
-          </div>
+          {stagedFiles.length > 0 && (
+            <div className="glass mb-1.5 flex flex-wrap gap-2 rounded-2xl border border-border/40 p-2 max-h-32 overflow-y-auto">
+              {stagedFiles.map((sf) => (
+                <div
+                  key={sf.id}
+                  className="flex items-center gap-2 rounded-xl bg-foreground/5 border border-border/50 px-2.5 py-1.5 text-xs"
+                >
+                  {sf.previewUrl ? (
+                    <img src={sf.previewUrl} alt="" className="h-7 w-7 rounded-md object-cover" />
+                  ) : (
+                    <FileLucideIcon className="h-4 w-4 text-primary shrink-0" />
+                  )}
+                  <div className="min-w-0 max-w-[120px]">
+                    <p className="truncate font-medium">{sf.file.name}</p>
+                    <p className="text-[9px] text-muted-foreground">{formatFileSize(sf.file.size)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sf.previewUrl) URL.revokeObjectURL(sf.previewUrl);
+                      setStagedFiles((prev) => prev.filter((x) => x.id !== sf.id));
+                    }}
+                    className="grid h-5 w-5 place-items-center rounded-full hover:bg-foreground/10"
+                    title="Remove attachment"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*,audio/*,application/pdf,text/plain,application/zip"
+            className="hidden"
+            onChange={handleFilesSelected}
+          />
+
+          {isRecording ? (
+            <div className="glass flex items-center justify-between gap-3 rounded-3xl px-4 py-2.5 min-h-11 border border-destructive/30">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-destructive animate-pulse" />
+                <span className="text-xs font-semibold text-destructive">
+                  Recording {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, "0")}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={cancelVoiceRecording}
+                  className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition"
+                  title="Cancel recording"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={stopAndSendVoiceRecording}
+                  className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground hover:opacity-90 shadow-sm transition"
+                  title="Finish & attach voice note"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-end gap-2">
+              {!vanishActive && !editing && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full glass hover:bg-foreground/10 transition text-foreground"
+                  title="Attach media or document"
+                >
+                  <Paperclip className="h-4 w-4 opacity-80" />
+                </button>
+              )}
+              <textarea
+                ref={composerRef}
+                value={text}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  if (!vanishActive) notifyTyping();
+                  const el = e.currentTarget;
+                  el.style.height = "auto";
+                  el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+                }}
+                onFocus={() => {
+                  setTimeout(() => {
+                    scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight });
+                  }, 250);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+                }}
+                rows={1}
+                placeholder={vanishActive ? "Vanish message..." : editing ? "Edit message" : "Message"}
+                className={[
+                  "max-h-32 min-h-11 flex-1 resize-none rounded-3xl px-4 py-3 text-sm outline-none transition-colors",
+                  "glass",
+                ].join(" ")}
+                aria-label={vanishActive ? "Type a vanish message" : "Type a message"}
+              />
+              {!text.trim() && stagedFiles.length === 0 && !editing && !vanishActive ? (
+                <button
+                  type="button"
+                  onClick={startVoiceRecording}
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full glass hover:bg-foreground/10 transition text-foreground"
+                  title="Record voice note"
+                >
+                  <Mic className="h-4 w-4 opacity-80" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isUploading || (!text.trim() && stagedFiles.length === 0) || (!vanishActive && (send.isPending || commitEdit.isPending))}
+                  className={[
+                    "grid h-11 w-11 shrink-0 place-items-center rounded-full text-primary-foreground transition disabled:opacity-40",
+                    "bg-primary glow-primary",
+                  ].join(" ")}
+                  aria-label={editing ? "Save" : vanishActive ? "Send vanish message" : "Send"}
+                >
+                  {isUploading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : vanishActive ? (
+                    <Moon className="h-4 w-4" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </form>
 
@@ -1483,6 +1972,7 @@ function ChatRoom() {
           }}
           onReply={() => setReplyTo(menu.msg)}
           onEdit={() => setEditing(menu.msg)}
+          onViewEdits={() => setEditsFor(menu.id)}
           onCopy={async () => {
             try { await navigator.clipboard.writeText(menu.msg.body); showToast("Copied"); }
             catch { showToast("Copy failed"); }
@@ -1537,6 +2027,14 @@ function ChatRoom() {
           messageId={infoFor}
           fetchInfo={fetchMessageInfo}
           onClose={() => setInfoFor(null)}
+        />
+      )}
+
+      {editsFor && (
+        <EditHistoryDialog
+          messageId={editsFor}
+          fetchEdits={fetchEdits}
+          onClose={() => setEditsFor(null)}
         />
       )}
 
@@ -1645,6 +2143,7 @@ function ContextMenu({
   onReact,
   onReply,
   onEdit,
+  onViewEdits,
   onCopy,
   onForward,
   onSelect,
@@ -1660,6 +2159,7 @@ function ContextMenu({
   onReact: (emoji: string) => void;
   onReply: () => void;
   onEdit: () => void;
+  onViewEdits?: () => void;
   onCopy: () => void;
   onForward: () => void;
   onSelect: () => void;
@@ -1731,6 +2231,7 @@ function ContextMenu({
         <div className="my-1 h-px bg-border" />
         <Item icon={Reply} label="Reply" onClick={onReply} />
         {menu.mine && <Item icon={Pencil} label="Edit" onClick={onEdit} />}
+        {menu.msg.edited_at && onViewEdits && <Item icon={History} label="Edit history" onClick={onViewEdits} />}
         <Item icon={Copy} label="Copy" onClick={onCopy} />
         <Item icon={Forward} label="Forward" onClick={onForward} />
         <Item icon={isPinned ? PinOff : Pin} label={isPinned ? "Unpin" : "Pin"} onClick={onPin} />
@@ -1855,6 +2356,61 @@ function InfoDialog({
               </div>
             )}
           </>
+        )}
+        <button onClick={onClose} className="mt-5 h-11 w-full rounded-full bg-primary font-semibold text-primary-foreground">
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EditHistoryDialog({
+  messageId,
+  fetchEdits,
+  onClose,
+}: {
+  messageId: string;
+  fetchEdits: (args: { data: { message_id: string } }) => Promise<MessageEdit[]>;
+  onClose: () => void;
+}) {
+  const editsQuery = useQuery({
+    queryKey: ["message-edits", messageId],
+    queryFn: () => fetchEdits({ data: { message_id: messageId } }),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="glass w-full max-w-sm rounded-3xl border border-border p-5 shadow-2xl animate-scale-in"
+      >
+        <div className="flex items-center gap-2">
+          <History className="h-5 w-5 text-primary" />
+          <h3 className="text-lg font-bold">Edit history</h3>
+        </div>
+        {editsQuery.isLoading ? (
+          <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
+        ) : editsQuery.isError ? (
+          <p className="mt-4 text-sm text-destructive">Failed to load edit history</p>
+        ) : (editsQuery.data ?? []).length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">No prior edits recorded</p>
+        ) : (
+          <div className="mt-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Previous revisions ({(editsQuery.data ?? []).length})
+            </p>
+            <ul className="mt-2 grid gap-2 max-h-60 overflow-y-auto">
+              {(editsQuery.data ?? []).map((e, idx) => (
+                <li key={idx} className="rounded-xl border border-border bg-foreground/5 p-3 text-xs">
+                  <p className="text-[10px] text-muted-foreground">
+                    {new Date(e.edited_at).toLocaleString()}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap break-words">{e.previous_body}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         <button onClick={onClose} className="mt-5 h-11 w-full rounded-full bg-primary font-semibold text-primary-foreground">
           Close
