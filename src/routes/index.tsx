@@ -28,28 +28,27 @@ import { authService } from "@/lib/auth/session";
 import { GhostMark } from "@/components/app-shell";
 
 export const Route = createFileRoute("/")({
-  beforeLoad: async () => {
-    if (typeof window === "undefined") return;
-    const { data } = await authService.getSession();
-    if (data.session) {
-      throw redirect({ to: "/chats" });
-    }
-  },
   component: LandingPage,
 });
 
 function LandingPage() {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ email?: string; id?: string } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     authService.getSession().then(({ data }) => {
-      if (data.session) {
-        navigate({ to: "/chats", replace: true });
+      if (data.session?.user) {
+        setCurrentUser({ email: data.session.user.email, id: data.session.user.id });
       }
     });
-  }, [navigate]);
+  }, []);
+
+  const handleSignOut = async () => {
+    await authService.signOut();
+    setCurrentUser(null);
+  };
 
   // Click outside & escape to close menu
   useEffect(() => {
@@ -93,84 +92,151 @@ function LandingPage() {
             <span className="text-[22px] font-bold tracking-tight text-[#0B1B33]">Ghostline</span>
           </div>
 
-          {/* Menu Anchor Container */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setIsMenuOpen((prev) => !prev)}
-              className="text-[#0B1B33] p-2 rounded-xl transition-all hover:bg-[#F5FAFF] active:scale-95 flex items-center justify-center cursor-pointer"
-              aria-label="Toggle Navigation Menu"
-              aria-expanded={isMenuOpen}
-            >
-              {isMenuOpen ? (
-                <X className="h-6 w-6 text-[#2587F5]" strokeWidth={2} />
-              ) : (
-                <Menu className="h-7 w-7" strokeWidth={1.75} />
-              )}
-            </button>
-
-            {/* Animated Dropdown Menu */}
-            <AnimatePresence>
-              {isMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.94, y: -6 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.94, y: -6 }}
-                  transition={{ duration: 0.16, ease: "easeOut" }}
-                  className="absolute right-0 top-12 z-50 w-[260px] sm:w-[280px] rounded-2xl border border-[#DCE8F5] bg-white/95 p-2.5 shadow-xl shadow-slate-200/80 backdrop-blur-xl"
+          {/* Header Action Buttons & Menu Container */}
+          <div className="flex items-center gap-2.5">
+            {currentUser ? (
+              <button
+                onClick={() => navigate({ to: "/chats" })}
+                className="flex items-center gap-1.5 rounded-xl bg-[#2587F5] px-3.5 py-2 text-xs sm:text-sm font-bold text-white shadow-sm shadow-[#2587F5]/25 transition-all hover:bg-[#1467D8] active:scale-95 cursor-pointer"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Open Chats</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => navigate({ to: "/auth", search: { mode: "signin" } as never })}
+                  className="hidden sm:flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold text-[#0B1B33] transition-colors hover:bg-[#F5FAFF] cursor-pointer"
                 >
-                  <div className="flex flex-col gap-0.5">
-                    <button
-                      onClick={() => scrollToSection("features")}
-                      className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#0B1B33] transition-colors hover:bg-[#F5FAFF] hover:text-[#2587F5] cursor-pointer"
-                    >
-                      <Sparkles className="h-4 w-4 text-[#2587F5]" />
-                      <span>Features</span>
-                    </button>
+                  <LogIn className="h-4 w-4 text-[#64748B]" />
+                  <span>Sign In</span>
+                </button>
+                <button
+                  onClick={() => navigate({ to: "/auth", search: { mode: "signup" } as never })}
+                  className="flex items-center gap-1.5 rounded-xl bg-[#2587F5] px-3.5 py-2 text-xs sm:text-sm font-bold text-white shadow-sm shadow-[#2587F5]/25 transition-all hover:bg-[#1467D8] active:scale-95 cursor-pointer"
+                >
+                  <span>Get Started</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
 
-                    <button
-                      onClick={() => scrollToSection("privacy")}
-                      className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#0B1B33] transition-colors hover:bg-[#F5FAFF] hover:text-[#2587F5] cursor-pointer"
-                    >
-                      <ShieldCheck className="h-4 w-4 text-[#2587F5]" />
-                      <span>Privacy & Security</span>
-                    </button>
+            {/* Menu Anchor Container */}
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setIsMenuOpen((prev) => !prev)}
+                className="text-[#0B1B33] p-2 rounded-xl transition-all hover:bg-[#F5FAFF] active:scale-95 flex items-center justify-center cursor-pointer"
+                aria-label="Toggle Navigation Menu"
+                aria-expanded={isMenuOpen}
+              >
+                {isMenuOpen ? (
+                  <X className="h-6 w-6 text-[#2587F5]" strokeWidth={2} />
+                ) : (
+                  <Menu className="h-7 w-7" strokeWidth={1.75} />
+                )}
+              </button>
 
-                    <button
-                      onClick={() => scrollToSection("about")}
-                      className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#0B1B33] transition-colors hover:bg-[#F5FAFF] hover:text-[#2587F5] cursor-pointer"
-                    >
-                      <Info className="h-4 w-4 text-[#2587F5]" />
-                      <span>About Ghostline</span>
-                    </button>
+              {/* Animated Dropdown Menu */}
+              <AnimatePresence>
+                {isMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.94, y: -6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.94, y: -6 }}
+                    transition={{ duration: 0.16, ease: "easeOut" }}
+                    className="absolute right-0 top-12 z-50 w-[260px] sm:w-[280px] rounded-2xl border border-[#DCE8F5] bg-white/95 p-2.5 shadow-xl shadow-slate-200/80 backdrop-blur-xl"
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        onClick={() => scrollToSection("features")}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#0B1B33] transition-colors hover:bg-[#F5FAFF] hover:text-[#2587F5] cursor-pointer"
+                      >
+                        <Sparkles className="h-4 w-4 text-[#2587F5]" />
+                        <span>Features</span>
+                      </button>
 
-                    <div className="my-2 border-t border-[#DCE8F5]" />
+                      <button
+                        onClick={() => scrollToSection("privacy")}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#0B1B33] transition-colors hover:bg-[#F5FAFF] hover:text-[#2587F5] cursor-pointer"
+                      >
+                        <ShieldCheck className="h-4 w-4 text-[#2587F5]" />
+                        <span>Privacy & Security</span>
+                      </button>
 
-                    <button
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        navigate({ to: "/auth", search: { mode: "signup" } as never });
-                      }}
-                      className="flex items-center justify-center gap-2 rounded-xl bg-[#2587F5] px-4 py-2.5 text-sm font-bold text-white shadow-sm shadow-[#2587F5]/25 transition-all hover:bg-[#1467D8] active:scale-[0.98] cursor-pointer"
-                    >
-                      <span>Get Started</span>
-                      <ArrowRight className="h-4 w-4" />
-                    </button>
+                      <button
+                        onClick={() => scrollToSection("about")}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#0B1B33] transition-colors hover:bg-[#F5FAFF] hover:text-[#2587F5] cursor-pointer"
+                      >
+                        <Info className="h-4 w-4 text-[#2587F5]" />
+                        <span>About Ghostline</span>
+                      </button>
 
-                    {/* Single-line sign in button on all mobile widths */}
-                    <button
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        navigate({ to: "/auth", search: { mode: "signin" } as never });
-                      }}
-                      className="mt-1.5 flex items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-center text-xs font-semibold text-[#64748B] transition-colors hover:bg-[#F5FAFF] hover:text-[#0B1B33] cursor-pointer whitespace-nowrap overflow-hidden"
-                    >
-                      <LogIn className="h-3.5 w-3.5 shrink-0" />
-                      <span className="whitespace-nowrap">Already have an account? <span className="text-[#2587F5] font-bold">Sign In</span></span>
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                      <div className="my-2 border-t border-[#DCE8F5]" />
+
+                      {currentUser ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              setIsMenuOpen(false);
+                              navigate({ to: "/chats" });
+                            }}
+                            className="flex items-center justify-center gap-2 rounded-xl bg-[#2587F5] px-4 py-2.5 text-sm font-bold text-white shadow-sm shadow-[#2587F5]/25 transition-all hover:bg-[#1467D8] active:scale-[0.98] cursor-pointer"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                            <span>Open Chats</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setIsMenuOpen(false);
+                              navigate({ to: "/auth", search: { mode: "signin" } as never });
+                            }}
+                            className="mt-1 flex items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-center text-xs font-semibold text-[#64748B] transition-colors hover:bg-[#F5FAFF] hover:text-[#0B1B33] cursor-pointer"
+                          >
+                            <LogIn className="h-3.5 w-3.5 shrink-0" />
+                            <span>Switch Account / Sign In</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setIsMenuOpen(false);
+                              handleSignOut();
+                            }}
+                            className="mt-0.5 flex items-center justify-center gap-1.5 rounded-xl px-2 py-1.5 text-center text-xs font-semibold text-destructive transition-colors hover:bg-destructive/5 cursor-pointer"
+                          >
+                            <span>Sign Out ({currentUser.email || "Active"})</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => {
+                              setIsMenuOpen(false);
+                              navigate({ to: "/auth", search: { mode: "signup" } as never });
+                            }}
+                            className="flex items-center justify-center gap-2 rounded-xl bg-[#2587F5] px-4 py-2.5 text-sm font-bold text-white shadow-sm shadow-[#2587F5]/25 transition-all hover:bg-[#1467D8] active:scale-[0.98] cursor-pointer"
+                          >
+                            <span>Get Started (Register)</span>
+                            <ArrowRight className="h-4 w-4" />
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setIsMenuOpen(false);
+                              navigate({ to: "/auth", search: { mode: "signin" } as never });
+                            }}
+                            className="mt-1.5 flex items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-center text-xs font-semibold text-[#64748B] transition-colors hover:bg-[#F5FAFF] hover:text-[#0B1B33] cursor-pointer whitespace-nowrap overflow-hidden"
+                          >
+                            <LogIn className="h-3.5 w-3.5 shrink-0" />
+                            <span className="whitespace-nowrap">Already have an account? <span className="text-[#2587F5] font-bold">Sign In</span></span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
       </header>
@@ -190,15 +256,45 @@ function LandingPage() {
           A private, modern messaging app<br className="hidden sm:block" /> to keep you close to the people<br className="hidden sm:block" /> who matter.
         </p>
 
-        {/* CTA Button */}
-        <button 
-          id="landing-get-started"
-          onClick={() => navigate({ to: "/auth", search: { mode: "signup" } as never })}
-          className="mt-8 flex items-center justify-center gap-2 rounded-xl bg-[#2587F5] px-8 py-3.5 text-[17px] font-bold text-white shadow-lg shadow-[#2587F5]/30 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
-        >
-          <span>Get Started</span>
-          <ArrowRight className="h-5 w-5" strokeWidth={2.5} />
-        </button>
+        {/* CTA Buttons */}
+        {currentUser ? (
+          <div className="mt-8 flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <button 
+              id="landing-open-chats"
+              onClick={() => navigate({ to: "/chats" })}
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#2587F5] px-8 py-3.5 text-[17px] font-bold text-white shadow-lg shadow-[#2587F5]/30 transition-transform hover:scale-105 active:scale-95 cursor-pointer w-full sm:w-auto"
+            >
+              <MessageSquare className="h-5 w-5" />
+              <span>Open Chats</span>
+              <ArrowRight className="h-5 w-5" strokeWidth={2.5} />
+            </button>
+            <button
+              onClick={() => navigate({ to: "/auth", search: { mode: "signin" } as never })}
+              className="flex items-center justify-center gap-2 rounded-xl border border-[#DCE8F5] bg-white px-6 py-3.5 text-[15px] font-semibold text-[#0B1B33] hover:bg-[#F5FAFF] transition-all cursor-pointer w-full sm:w-auto"
+            >
+              <LogIn className="h-4 w-4 text-[#64748B]" />
+              <span>Switch Account / Sign In</span>
+            </button>
+          </div>
+        ) : (
+          <div className="mt-8 flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <button 
+              id="landing-get-started"
+              onClick={() => navigate({ to: "/auth", search: { mode: "signup" } as never })}
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#2587F5] px-8 py-3.5 text-[17px] font-bold text-white shadow-lg shadow-[#2587F5]/30 transition-transform hover:scale-105 active:scale-95 cursor-pointer w-full sm:w-auto"
+            >
+              <span>Get Started</span>
+              <ArrowRight className="h-5 w-5" strokeWidth={2.5} />
+            </button>
+            <button
+              onClick={() => navigate({ to: "/auth", search: { mode: "signin" } as never })}
+              className="flex items-center justify-center gap-2 rounded-xl border border-[#DCE8F5] bg-white px-6 py-3.5 text-[15px] font-semibold text-[#0B1B33] hover:bg-[#F5FAFF] transition-all cursor-pointer w-full sm:w-auto"
+            >
+              <LogIn className="h-4 w-4 text-[#64748B]" />
+              <span>Sign In</span>
+            </button>
+          </div>
+        )}
 
         {/* Hero Highlights */}
         <div className="mt-12 flex items-start justify-center gap-6 sm:gap-16 w-full max-w-[420px]">

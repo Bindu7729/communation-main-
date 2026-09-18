@@ -28,12 +28,25 @@ function NotFoundComponent() {
         <p className="mt-2 text-sm text-muted-foreground">
           This ghost slipped away.
         </p>
-        <div className="mt-6">
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Link
             to="/"
-            className="inline-flex items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+            className="inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-all"
           >
-            Go home
+            Go to Homepage
+          </Link>
+          <Link
+            to="/chats"
+            className="inline-flex items-center justify-center rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-surface-3 transition-all"
+          >
+            Go to Chats
+          </Link>
+          <Link
+            to="/auth"
+            search={{ mode: "signin" }}
+            className="inline-flex items-center justify-center rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-surface-3 transition-all"
+          >
+            Login / Register
           </Link>
         </div>
       </div>

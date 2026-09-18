@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Loader2, Eye, EyeOff, ChevronLeft } from "lucide-react";
+import { Loader2, Eye, EyeOff, ChevronLeft, Home } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { authService } from "@/lib/auth/session";
@@ -37,6 +37,14 @@ function AuthPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [githubLoading, setGithubLoading] = useState(false);
 
+  const [loggedInUser, setLoggedInUser] = useState<{ email?: string; id?: string } | null>(null);
+
+  useEffect(() => {
+    if (search.mode) {
+      setMode(search.mode);
+    }
+  }, [search.mode]);
+
   useEffect(() => {
     const reason = popRevocationReason();
     if (reason) {
@@ -44,9 +52,11 @@ function AuthPage() {
     }
 
     authService.getSession().then(({ data }) => {
-      if (data.session && !reason) navigate({ to: "/chats", replace: true });
+      if (data.session?.user) {
+        setLoggedInUser({ email: data.session.user.email, id: data.session.user.id });
+      }
     });
-  }, [navigate]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,32 +193,101 @@ function AuthPage() {
       {/* Right Panel - Form Container */}
       <div className="flex w-full lg:w-1/2 flex-col items-center justify-center px-6 py-12 relative">
          
-         {/* Mobile Back Button */}
-         <div className="lg:hidden absolute top-6 left-6">
+         {/* Top Navigation Links */}
+         <div className="absolute top-6 left-6 flex items-center gap-2">
             <button 
               id="auth-go-back"
               type="button"
               onClick={() => navigate({ to: "/" })} 
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-[#DCE8F5] bg-white text-[#0B1B33] shadow-sm transition-all hover:bg-[#F5FAFF] hover:border-primary/40 active:scale-95"
+              className="flex items-center gap-2 rounded-xl border border-[#DCE8F5] bg-white px-3 py-2 text-xs font-semibold text-[#0B1B33] shadow-sm transition-all hover:bg-[#F5FAFF] hover:border-primary/40 active:scale-95 cursor-pointer"
             >
-               <ChevronLeft className="h-5 w-5" />
+               <Home className="h-4 w-4 text-[#2587F5]" />
+               <span>Homepage</span>
             </button>
          </div>
 
          {/* Form Wrapper */}
-         <div className="w-full max-w-[380px] animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out fill-mode-both">
+         <div className="w-full max-w-[380px] animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out fill-mode-both mt-10 lg:mt-0">
            
-           <div className="mb-10 text-left">
-              {/* Mobile GhostMark */}
-              <div className="lg:hidden mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-white shadow-sm">
-                <GhostMark className="h-7 w-7" />
-              </div>
+           {/* Current Session Banner if user is already logged in */}
+           {loggedInUser && (
+             <div className="mb-6 rounded-2xl border border-primary/20 bg-[#F5FAFF] p-4 text-xs shadow-sm">
+               <div className="flex items-center justify-between gap-2">
+                 <div className="min-w-0">
+                   <p className="font-bold text-[13px] text-[#0B1B33] truncate">
+                     Logged in as <span className="text-primary">{loggedInUser.email}</span>
+                   </p>
+                   <p className="text-[#64748B] mt-0.5 text-[11px]">
+                     You can jump to chats or switch accounts below.
+                   </p>
+                 </div>
+                 <button
+                   type="button"
+                   onClick={() => navigate({ to: "/chats" })}
+                   className="shrink-0 rounded-xl bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#1467D8] transition-colors cursor-pointer"
+                 >
+                   Open Chats
+                 </button>
+               </div>
+               <div className="mt-3 pt-2.5 border-t border-[#DCE8F5] flex justify-end">
+                 <button
+                   type="button"
+                   onClick={async () => {
+                     await authService.signOut();
+                     setLoggedInUser(null);
+                     toast.success("Signed out successfully");
+                   }}
+                   className="text-[11px] font-semibold text-destructive hover:underline cursor-pointer"
+                 >
+                   Sign Out of {loggedInUser.email}
+                 </button>
+               </div>
+             </div>
+           )}
 
-              <h2 className="text-[28px] font-bold tracking-tight text-[#0B1B33]">
+           {/* Mobile GhostMark */}
+           <div className="lg:hidden mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-white shadow-sm">
+             <GhostMark className="h-7 w-7" />
+           </div>
+
+           {/* Mode Tabs: Sign In vs Register */}
+           <div className="mb-6 flex rounded-xl bg-[#F5FAFF] p-1 border border-[#DCE8F5]">
+             <button
+               type="button"
+               onClick={() => {
+                 setMode("signin");
+                 setConfirmPassword("");
+               }}
+               className={`flex-1 rounded-lg py-2.5 text-center text-sm font-bold transition-all cursor-pointer ${
+                 mode === "signin"
+                   ? "bg-white text-[#0B1B33] shadow-sm"
+                   : "text-[#64748B] hover:text-[#0B1B33]"
+               }`}
+             >
+               Sign In
+             </button>
+             <button
+               type="button"
+               onClick={() => {
+                 setMode("signup");
+                 setConfirmPassword("");
+               }}
+               className={`flex-1 rounded-lg py-2.5 text-center text-sm font-bold transition-all cursor-pointer ${
+                 mode === "signup"
+                   ? "bg-white text-[#0B1B33] shadow-sm"
+                   : "text-[#64748B] hover:text-[#0B1B33]"
+               }`}
+             >
+               Register
+             </button>
+           </div>
+
+           <div className="mb-8 text-left">
+              <h2 className="text-[26px] font-bold tracking-tight text-[#0B1B33]">
                 {mode === "signin" ? "Welcome back" : "Create an account"}
               </h2>
-               <p className="mt-2 text-[15px] text-[#64748B]">
-                 {mode === "signin" ? "Enter your details to access your account." : "Start your private conversations today."}
+               <p className="mt-1.5 text-[14px] text-[#64748B]">
+                 {mode === "signin" ? "Enter your email & password to sign in." : "Register to start your private conversations."}
                </p>
             </div>
 

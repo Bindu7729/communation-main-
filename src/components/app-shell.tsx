@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { MessageCircle, Phone, Users, Settings } from "lucide-react";
+import { MessageCircle, Phone, Users, Settings, Home, LogIn } from "lucide-react";
 import type { ReactNode } from "react";
 import { CommandPalette } from "@/components/command-palette";
 
@@ -36,7 +36,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen w-[240px] shrink-0 flex-col border-r border-border bg-sidebar px-3 py-5 lg:flex">
         {/* Logo */}
-        <div className="mb-6 flex items-center gap-2.5 px-3">
+        <Link to="/" className="mb-6 flex items-center gap-2.5 px-3 transition-opacity hover:opacity-85" title="Go to Homepage">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-white shadow-md shadow-primary/25">
             <GhostMark className="h-5 w-5" />
           </div>
@@ -44,7 +44,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="text-[15px] font-extrabold tracking-tight text-foreground">Ghostline</p>
             <p className="text-[11px] text-muted-foreground">Private conversations</p>
           </div>
-        </div>
+        </Link>
 
         {/* Nav */}
         <nav className="grid gap-0.5">
@@ -77,6 +77,25 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Spacer */}
         <div className="mt-auto" />
+
+        {/* Quick Links */}
+        <div className="mb-3 grid gap-1 border-t border-border pt-3">
+          <Link
+            to="/"
+            className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-muted-foreground transition-all hover:bg-surface-2 hover:text-foreground"
+          >
+            <Home className="h-4 w-4 shrink-0 text-primary" />
+            Homepage
+          </Link>
+          <Link
+            to="/auth"
+            search={{ mode: "signin" }}
+            className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-muted-foreground transition-all hover:bg-surface-2 hover:text-foreground"
+          >
+            <LogIn className="h-4 w-4 shrink-0" />
+            Login / Register
+          </Link>
+        </div>
 
         {/* Privacy badge */}
         <div className="flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-[11px] text-muted-foreground">

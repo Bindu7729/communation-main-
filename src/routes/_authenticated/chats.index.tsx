@@ -24,6 +24,7 @@ import {
   ArrowLeft,
   Check,
   MessageSquare,
+  Home,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, GhostMark } from "@/components/app-shell";
@@ -457,6 +458,14 @@ function ChatsPage() {
                 <>
                   <h1 className="text-[22px] font-extrabold tracking-tight text-foreground">Chats</h1>
                   <div className="flex items-center gap-2">
+                    <Link
+                      to="/"
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-surface-2 text-muted-foreground transition hover:bg-surface-3 hover:text-foreground"
+                      aria-label="Homepage"
+                      title="Ghostline Homepage"
+                    >
+                      <Home className="h-[17px] w-[17px]" />
+                    </Link>
                     <Link
                       to="/chats/$conversationId"
                       params={{ conversationId: ASSISTANT_CONVERSATION_ID }}
