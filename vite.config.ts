@@ -8,6 +8,7 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
   nitro: {
+    preset: process.env.VERCEL || process.env.NITRO_PRESET ? (process.env.NITRO_PRESET || "vercel") : undefined,
     // Nitro regenerates .output/server/wrangler.json during every production build.
     // Keep Worker bindings here; never edit generated output.
     cloudflare: {
