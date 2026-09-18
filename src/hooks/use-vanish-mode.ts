@@ -63,7 +63,14 @@ export function useVanishMode({
     mutationFn: useServerFn(toggleDisappearingMessages),
   });
 
-  const vanishActive = disappearingMessagesEnabled;
+  const [localVanish, setLocalVanish] = useState<boolean | null>(null);
+
+  // Reset local state when conversation changes
+  useEffect(() => {
+    setLocalVanish(null);
+  }, [conversationId]);
+
+  const vanishActive = localVanish !== null ? localVanish : disappearingMessagesEnabled;
 
   // Touch gesture tracking
   const touchStartY = useRef<number | null>(null);
@@ -71,16 +78,18 @@ export function useVanishMode({
 
   const pingSession = useCallback(() => {
     if (vanishActive) {
-      doPingSession({ data: { conversation_id: conversationId } }).catch(console.error);
+      doPingSession({ data: { conversation_id: conversationId } }).catch(() => {});
     }
   }, [vanishActive, conversationId, doPingSession]);
 
   const enterVanishMode = useCallback(() => {
+    setLocalVanish(true);
     toggleDisappearing({ data: { conversation_id: conversationId, enabled: true } });
     pingSession();
   }, [toggleDisappearing, pingSession, conversationId]);
 
   const exitVanishMode = useCallback(() => {
+    setLocalVanish(false);
     toggleDisappearing({ data: { conversation_id: conversationId, enabled: false } });
   }, [toggleDisappearing, conversationId]);
 

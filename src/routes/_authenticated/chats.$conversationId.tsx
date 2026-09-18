@@ -652,7 +652,13 @@ function ChatRoom() {
   // ────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!meId) return;
+    if (!meId || isDemo) {
+      if (isDemo) {
+        setChannelReady(true);
+        setIsReconnecting(false);
+      }
+      return;
+    }
     setChannelReady(false);
     const channel = supabase
       .channel(`chat:conv:${conversationId}`, {
@@ -779,7 +785,7 @@ function ChatRoom() {
       setIsReconnecting(false);
       supabase.removeChannel(channel);
     };
-  }, [conversationId, meId, qc, collapseAndForget, doMarkDelivered]);
+  }, [conversationId, meId, qc, collapseAndForget, doMarkDelivered, isDemo]);
 
   // Automatically acknowledge delivery for incoming peer messages in conversation
   useEffect(() => {
@@ -816,6 +822,8 @@ function ChatRoom() {
       return old.map((c) => (c.id === conversationId ? { ...c, unread: 0 } : c));
     });
 
+    if (isDemo) return;
+
     const last = rendered.length ? rendered[rendered.length - 1] : null;
     const upTo = last?.created_at
       ? (!isNaN(Date.parse(last.created_at)) ? new Date(last.created_at).toISOString() : new Date().toISOString())
@@ -824,7 +832,7 @@ function ChatRoom() {
     doMarkRead({ data: { conversation_id: conversationId, up_to_created_at: upTo } })
       .then(() => qc.invalidateQueries({ queryKey: ["conversations"] }))
       .catch((err) => console.error("[Ghostline] markRead error:", err));
-  }, [rendered, conversationId, doMarkRead, qc]);
+  }, [rendered, conversationId, doMarkRead, qc, isDemo]);
 
   const send = useMutation({
     mutationFn: async (payload: string | { body: string; reply_to_id?: string | null }) => {
@@ -1480,7 +1488,11 @@ function ChatRoom() {
               </span>
             </p>
             <p className="truncate text-[11px] text-muted-foreground">
-              {isReconnecting ? (
+              {isDemo ? (
+                <span className="inline-flex items-center gap-1.5 text-emerald-400 font-medium">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Active now
+                </span>
+              ) : isReconnecting ? (
                 <span className="inline-flex items-center gap-1 text-amber-400 font-medium">
                   <Loader2 className="h-2.5 w-2.5 animate-spin" /> Reconnecting...
                 </span>

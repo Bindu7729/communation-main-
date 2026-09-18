@@ -15,6 +15,7 @@ import type { SignalPayload } from "@/lib/ports/signaling";
 import { rtcConfig } from "@/lib/webrtc-config";
 import { createCall, updateCallStatus, type CallPeer, type CallType } from "@/lib/calls.functions";
 import { getMyProfile } from "@/lib/profile.functions";
+import { isDevAuthActive, getDevSession, DEV_USER, ASSISTANT_USER } from "@/lib/auth/dev-auth";
 import { CallOverlay, IncomingCallDialog } from "./call-ui";
 
 export type CallState =
@@ -291,16 +292,73 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [finish, myId, sendSignal],
   );
 
+function createSimulatedMediaStream(type: CallType, label?: string): MediaStream {
+  if (typeof document === "undefined") return new MediaStream();
+  const canvas = document.createElement("canvas");
+  canvas.width = 640;
+  canvas.height = 480;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#0a1120";
+    ctx.fillRect(0, 0, 640, 480);
+    ctx.fillStyle = "#2587f5";
+    ctx.beginPath();
+    ctx.arc(320, 190, 55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 24px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(label || "Video Preview", 320, 290);
+    ctx.font = "14px system-ui, sans-serif";
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillText("Active Connection", 320, 320);
+  }
+  const canvasWithCapture = canvas as HTMLCanvasElement & { captureStream?(fps?: number): MediaStream };
+  const canvasStream = canvasWithCapture.captureStream
+    ? canvasWithCapture.captureStream(15)
+    : new MediaStream();
+
+  let audioTrack: MediaStreamTrack | null = null;
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (AudioCtx) {
+      const audioCtx = new AudioCtx();
+      const dest = audioCtx.createMediaStreamDestination();
+      audioTrack = dest.stream.getAudioTracks()[0] ?? null;
+    }
+  } catch {
+    /* ignore audio context failure */
+  }
+
+  const tracks: MediaStreamTrack[] = [];
+  if (type === "video") {
+    tracks.push(...canvasStream.getVideoTracks());
+  }
+  if (audioTrack) {
+    tracks.push(audioTrack);
+  }
+  return new MediaStream(tracks);
+}
+
   const getMedia = useCallback(async (type: CallType) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: type === "video" ? { facingMode: "user" } : false,
-      });
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-      return stream;
+      if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: type === "video" ? { facingMode: "user" } : false,
+        });
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+        return stream;
+      }
     } catch (e) {
+      console.warn("[Ghostline] getUserMedia error:", e);
+      if (isDevAuthActive() || import.meta.env.DEV) {
+        const simStream = createSimulatedMediaStream(type, "My Camera Preview");
+        localStreamRef.current = simStream;
+        setLocalStream(simStream);
+        return simStream;
+      }
       const name = e instanceof DOMException ? e.name : "";
       if (name === "NotAllowedError" || name === "SecurityError") {
         throw new Error(
@@ -311,6 +369,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       throw new Error("Could not access your microphone or camera.");
     }
+
+    if (isDevAuthActive() || import.meta.env.DEV) {
+      const simStream = createSimulatedMediaStream(type, "My Camera Preview");
+      localStreamRef.current = simStream;
+      setLocalStream(simStream);
+      return simStream;
+    }
+    throw new Error("Media devices not supported in this browser.");
   }, []);
 
   /* ------------------------------ outgoing ----------------------------- */
@@ -326,16 +392,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
       peer: CallPeer | null;
       type: CallType;
     }) => {
-      if (activeRef.current || !myId) return;
-      if (peerId === myId) return;
+      const effectiveMyId = myId || (isDevAuthActive() ? (getDevSession()?.user.id || DEV_USER.id) : null);
+      if (activeRef.current || !effectiveMyId) return;
+      if (peerId === effectiveMyId) return;
       setError(null);
       try {
         const stream = await getMedia(type);
-        const row = await createCall({
-          data: { conversation_id: conversationId, callee_id: peerId, call_type: type },
-        });
+        let callId: string = crypto.randomUUID();
+        try {
+          const row = await createCall({
+            data: { conversation_id: conversationId, callee_id: peerId, call_type: type },
+          });
+          callId = row.id;
+        } catch (callErr) {
+          if (!isDevAuthActive() && peerId !== ASSISTANT_USER.id) throw callErr;
+        }
+
         const call: ActiveCall = {
-          id: row.id,
+          id: callId,
           conversationId,
           peerId,
           peer,
@@ -346,23 +420,40 @@ export function CallProvider({ children }: { children: ReactNode }) {
         activeRef.current = call;
         setState("OUTGOING");
 
-        const pc = buildPeerConnection(peerId, row.id);
-        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await sendSignal(peerId, "call-offer", {
-          call_id: row.id,
-          from: myId,
-          conversation_id: conversationId,
-          call_type: type,
-          peer: myProfileRef.current,
-          sdp: offer,
-        });
+        if (peerId === ASSISTANT_USER.id) {
+          // Ghostline Assistant answers automatically after 1.5 seconds!
+          ringTimer.current = setTimeout(() => {
+            if (activeRef.current?.peerId === ASSISTANT_USER.id) {
+              stopRingtone();
+              setState("CONNECTED");
+              startedAt.current = Date.now();
+              const remoteSim = createSimulatedMediaStream(type, "Ghostline Assistant");
+              setRemoteStream(remoteSim);
+              if (tickTimer.current) clearInterval(tickTimer.current);
+              tickTimer.current = setInterval(() => {
+                setSeconds((s) => s + 1);
+              }, 1000);
+            }
+          }, 1500);
+        } else {
+          const pc = buildPeerConnection(peerId, callId);
+          stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await sendSignal(peerId, "call-offer", {
+            call_id: callId,
+            from: effectiveMyId,
+            conversation_id: conversationId,
+            call_type: type,
+            peer: myProfileRef.current,
+            sdp: offer,
+          });
 
-        ringTimer.current = setTimeout(() => {
-          setError("No answer");
-          finish("MISSED", true, "missed");
-        }, RING_TIMEOUT_MS);
+          ringTimer.current = setTimeout(() => {
+            setError("No answer");
+            finish("MISSED", true, "missed");
+          }, RING_TIMEOUT_MS);
+        }
       } catch (e) {
         teardown();
         setError(e instanceof Error ? e.message : "Could not start the call");
@@ -373,7 +464,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }, 2500);
       }
     },
-    [buildPeerConnection, finish, getMedia, myId, sendSignal, teardown],
+    [buildPeerConnection, finish, getMedia, myId, sendSignal, teardown, stopRingtone],
   );
 
   /* ------------------------------ incoming ----------------------------- */
