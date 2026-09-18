@@ -456,7 +456,21 @@ function ChatsPage() {
                 </div>
               ) : (
                 <>
-                  <h1 className="text-[22px] font-extrabold tracking-tight text-foreground">Chats</h1>
+                  <div className="flex items-center gap-2.5">
+                    <Link
+                      to="/profile"
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary font-bold text-white text-xs shadow-xs hover:opacity-90 transition-opacity"
+                      title={`Profile: ${profile.data?.display_name || "Bindu"} (@${profile.data?.username || "bindu"})`}
+                    >
+                      {(profile.data?.display_name || "Bindu").charAt(0).toUpperCase()}
+                    </Link>
+                    <div>
+                      <h1 className="text-[20px] font-extrabold tracking-tight text-foreground leading-tight">Chats</h1>
+                      <p className="text-[11px] font-semibold text-primary">
+                        {profile.data?.display_name || "Bindu"}
+                      </p>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Link
                       to="/"

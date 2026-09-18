@@ -1,7 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { MessageCircle, Phone, Users, Settings, Home, LogIn } from "lucide-react";
-import type { ReactNode } from "react";
+import { MessageCircle, Phone, Users, Settings, Home, LogIn, User } from "lucide-react";
+import { useState, useEffect, type ReactNode } from "react";
 import { CommandPalette } from "@/components/command-palette";
+import { authService } from "@/lib/auth/session";
+import { isDevAuthActive, getActiveDevUser, getActiveDevUserProfile, DEV_USER } from "@/lib/auth/dev-auth";
 
 const tabs = [
   { to: "/chats", label: "Chats", icon: MessageCircle },
@@ -28,6 +30,34 @@ export function GhostMark({ className = "h-5 w-5" }: { className?: string }) {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isActive = (to: string) => pathname === to || pathname.startsWith(to + "/");
+
+  const [currentUserProfile, setCurrentUserProfile] = useState<{ displayName: string; username: string }>({
+    displayName: "Bindu",
+    username: "bindu",
+  });
+
+  useEffect(() => {
+    authService.getSession().then(({ data }) => {
+      const user = data?.session?.user;
+      if (user) {
+        if (isDevAuthActive()) {
+          const p = getActiveDevUserProfile(user.id ?? DEV_USER.id);
+          setCurrentUserProfile({
+            displayName: p.display_name || "Bindu",
+            username: p.username || "bindu",
+          });
+        } else {
+          const meta = user.user_metadata as Record<string, unknown> | undefined;
+          const name = typeof meta?.name === "string" ? meta.name : typeof meta?.display_name === "string" ? meta.display_name : "Bindu";
+          const username = typeof meta?.username === "string" ? meta.username : user.email?.split("@")[0] || "bindu";
+          setCurrentUserProfile({
+            displayName: name,
+            username,
+          });
+        }
+      }
+    });
+  }, []);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -78,8 +108,27 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Spacer */}
         <div className="mt-auto" />
 
+        {/* User Identity Card */}
+        <Link
+          to="/profile"
+          className="mb-2 flex items-center gap-2.5 rounded-xl border border-border bg-surface-2/70 p-2.5 transition-all hover:bg-surface-2 hover:border-primary/40 group"
+          title={`Signed in as ${currentUserProfile.displayName} (@${currentUserProfile.username})`}
+        >
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary font-bold text-white text-xs shadow-xs group-hover:scale-105 transition-transform">
+            {currentUserProfile.displayName.charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-bold text-foreground leading-tight">
+              {currentUserProfile.displayName}
+            </p>
+            <p className="truncate text-[11px] text-muted-foreground">
+              @{currentUserProfile.username}
+            </p>
+          </div>
+        </Link>
+
         {/* Quick Links */}
-        <div className="mb-3 grid gap-1 border-t border-border pt-3">
+        <div className="mb-3 grid gap-1 border-t border-border pt-2.5">
           <Link
             to="/"
             className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-muted-foreground transition-all hover:bg-surface-2 hover:text-foreground"

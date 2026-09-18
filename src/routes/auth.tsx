@@ -172,22 +172,27 @@ function AuthPage() {
       <div className="hidden lg:flex w-1/2 flex-col justify-between bg-[#F7FAFE] p-12 lg:p-16 border-r border-[#DCE8F5] relative overflow-hidden isolate">
          {/* Ambient glow */}
          <div className="absolute top-[-20%] left-[-10%] h-[800px] w-[800px] rounded-full bg-[radial-gradient(circle,rgba(37,135,245,0.08)_0%,rgba(247,250,254,0)_70%)] blur-3xl pointer-events-none -z-10" />
-         
-         <div className="relative z-10 flex items-center gap-3">
-           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-white shadow-sm">
-             <GhostMark className="h-[26px] w-[26px]" />
-           </div>
-           <span className="text-xl font-extrabold tracking-tight text-[#0B1B33]">Ghostline</span>
-         </div>
-         
-         <div className="relative z-10 mb-16 max-w-[480px]">
-           <h1 className="text-[42px] lg:text-[52px] font-extrabold tracking-tight text-[#0B1B33] leading-[1.05] mb-6">
-             A quieter place<br />for conversations<br />that matter.
-           </h1>
-           <p className="text-[17px] text-[#64748B] leading-relaxed">
-             Built for real connections. Join Ghostline to connect with the people you care about, privately and securely.
-           </p>
-         </div>
+         <Link to="/" className="relative z-10 inline-flex items-center gap-3 cursor-pointer group transition-opacity hover:opacity-90">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-white shadow-sm">
+              <GhostMark className="h-[26px] w-[26px]" />
+            </div>
+            <span className="text-xl font-extrabold tracking-tight text-[#0B1B33]">Ghostline</span>
+          </Link>
+          
+          <div className="relative z-10 mb-16 max-w-[480px]">
+            <h1 className="text-[42px] lg:text-[50px] font-extrabold tracking-tight text-[#0B1B33] leading-[1.08] mb-6">
+              A quieter place<br />for conversations<br />that matter.
+            </h1>
+            <p className="text-[17px] text-[#64748B] leading-relaxed">
+              Built for real connections. Join Ghostline to connect with the people you care about, privately and securely.
+            </p>
+          </div>
+
+          <div className="relative z-10 flex items-center gap-2 text-[13px] font-medium text-[#94A3B8]">
+            <span>🔒 End-to-End Encrypted</span>
+            <span>•</span>
+            <span>Zero Tracking</span>
+          </div>
       </div>
 
       {/* Right Panel - Form Container */}
@@ -292,77 +297,87 @@ function AuthPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-             {/* Email */}
-             <div className="relative group">
-               <input
-                 id="auth-email"
-                 type="email"
-                 autoComplete="email"
-                 placeholder="Email address"
-                 value={email}
-                 onChange={(e) => setEmail(e.target.value)}
-                 className="h-[52px] w-full rounded-xl border border-[#DCE8F5] bg-[#F5FAFF] px-4 text-[15px] text-[#0B1B33] outline-none placeholder:text-[#94A3B8] transition-all focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/10"
-                 required
-               />
-             </div>
+              {/* Email */}
+              <div>
+                <label htmlFor="auth-email" className="block text-[13.5px] font-medium text-[#0B1B33] mb-1.5 text-left">
+                  Email address
+                </label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="name@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-[50px] w-full rounded-xl border border-[#DCE8F5] bg-[#F8FAFC] px-4 text-[15px] text-[#0B1B33] outline-none placeholder:text-[#94A3B8] transition-all focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/10"
+                  required
+                />
+              </div>
 
-             {/* Password */}
-             <div className="flex flex-col gap-2">
-               <div className="relative group flex items-center rounded-xl border border-[#DCE8F5] bg-[#F5FAFF] transition-all focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary/10">
-                 <input
-                   id="auth-password"
-                   type={showPassword ? "text" : "password"}
-                   autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                   placeholder="Password"
-                   value={password}
-                   onChange={(e) => setPassword(e.target.value)}
-                   className="h-[52px] w-full rounded-xl bg-transparent px-4 text-[15px] text-[#0B1B33] outline-none placeholder:text-[#94A3B8]"
-                   required
-                 />
-                 <button
-                   type="button"
-                   onClick={() => setShowPassword((v) => !v)}
-                   className="pr-4 text-[#94A3B8] hover:text-[#64748B] transition-colors"
-                   tabIndex={-1}
-                   aria-label={showPassword ? "Hide password" : "Show password"}
-                 >
-                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                 </button>
-               </div>
-               
-               {mode === "signin" && (
-                 <div className="flex justify-end">
-                   <button type="button" className="text-[13px] font-semibold text-[#64748B] hover:text-primary transition-colors">
-                     Forgot password?
-                   </button>
-                 </div>
-               )}
-             </div>
+              {/* Password */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="auth-password" className="block text-[13.5px] font-medium text-[#0B1B33]">
+                    Password
+                  </label>
+                  {mode === "signin" && (
+                    <button type="button" className="text-[12.5px] font-semibold text-[#64748B] hover:text-primary transition-colors">
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <div className="relative flex items-center rounded-xl border border-[#DCE8F5] bg-[#F8FAFC] transition-all focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary/10">
+                  <input
+                    id="auth-password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                    placeholder="Enter password (min. 8 characters)"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-[50px] w-full rounded-xl bg-transparent px-4 pr-12 text-[15px] text-[#0B1B33] outline-none placeholder:text-[#94A3B8]"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-1 flex h-11 w-11 items-center justify-center text-[#94A3B8] hover:text-[#0B1B33] transition-colors rounded-lg focus:outline-none"
+                    tabIndex={-1}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
+              </div>
 
-             {/* Confirm Password */}
-             {mode === "signup" && (
-               <div className="relative group flex items-center rounded-xl border border-[#DCE8F5] bg-[#F5FAFF] transition-all focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary/10">
-                 <input
-                   id="auth-confirm-password"
-                   type={showConfirmPassword ? "text" : "password"}
-                   autoComplete="new-password"
-                   placeholder="Repeat password"
-                   value={confirmPassword}
-                   onChange={(e) => setConfirmPassword(e.target.value)}
-                   className="h-[52px] w-full rounded-xl bg-transparent px-4 text-[15px] text-[#0B1B33] outline-none placeholder:text-[#94A3B8]"
-                   required
-                 />
-                 <button
-                   type="button"
-                   onClick={() => setShowConfirmPassword((v) => !v)}
-                   className="pr-4 text-[#94A3B8] hover:text-[#64748B] transition-colors"
-                   tabIndex={-1}
-                   aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                 >
-                   {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                 </button>
-               </div>
-             )}
+              {/* Confirm Password */}
+              {mode === "signup" && (
+                <div>
+                  <label htmlFor="auth-confirm-password" className="block text-[13.5px] font-medium text-[#0B1B33] mb-1.5 text-left">
+                    Repeat password
+                  </label>
+                  <div className="relative flex items-center rounded-xl border border-[#DCE8F5] bg-[#F8FAFC] transition-all focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary/10">
+                    <input
+                      id="auth-confirm-password"
+                      type={showConfirmPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      placeholder="Confirm your password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="h-[50px] w-full rounded-xl bg-transparent px-4 pr-12 text-[15px] text-[#0B1B33] outline-none placeholder:text-[#94A3B8]"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((v) => !v)}
+                      className="absolute right-1 flex h-11 w-11 items-center justify-center text-[#94A3B8] hover:text-[#0B1B33] transition-colors rounded-lg focus:outline-none"
+                      tabIndex={-1}
+                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </button>
+                  </div>
+                </div>
+              )}
 
              <button
                id="auth-submit"
