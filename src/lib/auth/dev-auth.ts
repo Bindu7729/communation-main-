@@ -45,6 +45,44 @@ export const BINDU_USER_PROFILE: DevUserProfile = {
   avatar_url: null,
 };
 
+export const ASSISTANT_USER: AuthUser = {
+  id: "00000000-0000-0000-0000-000000000099",
+  email: "assistant@ghostline.app",
+};
+
+export const ASSISTANT_PROFILE: DevUserProfile = {
+  id: ASSISTANT_USER.id,
+  username: "ghostline",
+  display_name: "Ghostline Assistant",
+  bio: "Interactive Ghostline test assistant for messaging, photos, vanish mode & location.",
+  avatar_url: null,
+};
+
+export interface RegisteredDevAccount {
+  user: AuthUser;
+  profile: DevUserProfile;
+  password: string;
+}
+
+export const DEV_REGISTERED_ACCOUNTS_KEY = "ghostline.dev_registered_accounts";
+
+export function getRegisteredDevAccounts(): RegisteredDevAccount[] {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(DEV_REGISTERED_ACCOUNTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRegisteredDevAccount(account: RegisteredDevAccount): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  const accounts = getRegisteredDevAccounts().filter((a) => a.user.email?.toLowerCase() !== account.user.email?.toLowerCase());
+  accounts.push(account);
+  window.localStorage.setItem(DEV_REGISTERED_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
 export const DEV_DEVICE_KEY = "dev-device-ghostline";
 export const DEV_AUTH_STORAGE_KEY = "ghostline.dev_auth_active";
 export const DEV_ACTIVE_USER_STORAGE_KEY = "ghostline.dev_active_user";
@@ -109,15 +147,16 @@ export function setActiveDevUser(user: AuthUser, profile?: typeof DEV_USER_PROFI
   }
 }
 
-const inMemoryDevProfiles: Record<string, typeof DEV_USER_PROFILE> = {
+const inMemoryDevProfiles: Record<string, DevUserProfile> = {
   [DEV_USER.id]: { ...DEV_USER_PROFILE },
   [BINDU_USER.id]: { ...BINDU_USER_PROFILE },
+  [ASSISTANT_USER.id]: { ...ASSISTANT_PROFILE },
 };
 
 export function updateDevUserProfile(
   userId: string,
-  patch: Partial<typeof DEV_USER_PROFILE>,
-): typeof DEV_USER_PROFILE {
+  patch: Partial<DevUserProfile>,
+): DevUserProfile {
   const current = getActiveDevUserProfile(userId);
   const updated = {
     ...current,
@@ -130,7 +169,7 @@ export function updateDevUserProfile(
   return updated;
 }
 
-export function getActiveDevUserProfile(userId: string): typeof DEV_USER_PROFILE {
+export function getActiveDevUserProfile(userId: string): DevUserProfile {
   if (typeof window !== "undefined" && window.localStorage) {
     const raw = window.localStorage.getItem(`ghostline.dev_profile.${userId}`);
     if (raw) {
@@ -145,6 +184,9 @@ export function getActiveDevUserProfile(userId: string): typeof DEV_USER_PROFILE
     return inMemoryDevProfiles[userId];
   }
   if (userId === BINDU_USER.id) return BINDU_USER_PROFILE;
+  if (userId === ASSISTANT_USER.id) return ASSISTANT_PROFILE;
+  const registered = getRegisteredDevAccounts().find((a) => a.user.id === userId);
+  if (registered) return registered.profile;
   return DEV_USER_PROFILE;
 }
 

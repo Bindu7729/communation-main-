@@ -160,6 +160,8 @@ export type Attachment = {
   file_size: number;
   status: "pending" | "uploaded" | "attached" | "failed";
   created_at: string;
+  storage_path?: string;
+  preview_url?: string;
 };
 
 export type Reaction = {

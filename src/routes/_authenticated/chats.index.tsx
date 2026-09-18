@@ -23,6 +23,7 @@ import {
   MailOpen,
   ArrowLeft,
   Check,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, GhostMark } from "@/components/app-shell";
@@ -44,7 +45,7 @@ import { getDeviceKey, guessDeviceName } from "@/lib/device-key";
 import { usePresence } from "@/components/presence-provider";
 import { realtimeService } from "@/lib/realtime/create-realtime";
 import { authService } from "@/lib/auth/session";
-import { isDevAuthActive, getActiveDevUserProfile, DEV_USER } from "@/lib/auth/dev-auth";
+import { isDevAuthActive, getActiveDevUserProfile, DEV_USER, ASSISTANT_USER } from "@/lib/auth/dev-auth";
 
 export const Route = createFileRoute("/_authenticated/chats/")({
   component: ChatsPage,
@@ -108,17 +109,93 @@ function ChatsPage() {
     }
   }, [profile.data]);
 
+  const ASSISTANT_CONVERSATION_ID = "00000000-0000-0000-0000-000000000099";
+
+  const getAssistantConversation = (): ConversationSummary => {
+    let lastMsg = {
+      id: "welcome-init",
+      sender_id: ASSISTANT_USER.id,
+      body: "👋 Welcome! Send a message, photo, or location to test everything.",
+      created_at: new Date().toISOString(),
+      deleted_at: null,
+      is_vanish: false,
+    };
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        const raw = window.localStorage.getItem(`ghostline.demo_messages_${ASSISTANT_CONVERSATION_ID}`);
+        if (raw) {
+          const msgs = JSON.parse(raw);
+          if (msgs.length > 0) {
+            const last = msgs[msgs.length - 1];
+            lastMsg = {
+              id: last.id,
+              sender_id: last.sender_id,
+              body: last.body || (last.attachments?.length ? "📷 Photo" : "Message"),
+              created_at: last.created_at,
+              deleted_at: null,
+              is_vanish: last.is_vanish ?? false,
+            };
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      id: ASSISTANT_CONVERSATION_ID,
+      kind: "direct",
+      title: "Ghostline Assistant",
+      description: null,
+      avatar_url: null,
+      created_by: ASSISTANT_USER.id,
+      member_count: 2,
+      members: [
+        {
+          id: ASSISTANT_USER.id,
+          username: "ghostline",
+          display_name: "Ghostline Assistant",
+          avatar_url: null,
+          last_seen: new Date().toISOString(),
+        },
+      ],
+      other: {
+        id: ASSISTANT_USER.id,
+        username: "ghostline",
+        display_name: "Ghostline Assistant",
+        avatar_url: null,
+        last_seen: new Date().toISOString(),
+      },
+      last_message_at: lastMsg.created_at,
+      last_message: lastMsg,
+      unread: 0,
+      pinned: true,
+      muted: false,
+      archived: false,
+      my_role: "admin",
+      disappearing_messages_enabled: false,
+    };
+  };
+
   const conversations = useQuery({
     queryKey: ["conversations"],
     queryFn: async () => {
+      let serverList: ConversationSummary[] = [];
       try {
-        return await fetchConversations();
+        serverList = await fetchConversations();
       } catch (e) {
-        if (isDevAuthActive() || import.meta.env.DEV) {
-          return [];
+        if (!isDevAuthActive() && !import.meta.env.DEV) {
+          throw e;
         }
-        throw e;
       }
+      if (isDevAuthActive() || import.meta.env.DEV) {
+        const assistantConv = getAssistantConversation();
+        const exists = serverList.some((c) => c.id === assistantConv.id);
+        if (!exists) {
+          return [assistantConv, ...serverList];
+        }
+      }
+      return serverList;
     },
     enabled: !!profile.data?.username,
     refetchInterval: 3000,
@@ -380,6 +457,15 @@ function ChatsPage() {
                 <>
                   <h1 className="text-[22px] font-extrabold tracking-tight text-foreground">Chats</h1>
                   <div className="flex items-center gap-2">
+                    <Link
+                      to="/chats/$conversationId"
+                      params={{ conversationId: ASSISTANT_CONVERSATION_ID }}
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-surface-2 text-primary transition hover:bg-primary/10"
+                      aria-label="Start Test Chat"
+                      title="Instant Test Chat (Ghostline Assistant)"
+                    >
+                      <MessageSquare className="h-[17px] w-[17px]" />
+                    </Link>
                     <button
                       onClick={() => setShowNewGroup(true)}
                       className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-surface-2 text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
@@ -443,12 +529,22 @@ function ChatsPage() {
             <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
               Your private Ghostline conversations live here.
             </p>
-            <Link
-              to="/contacts"
-              className="mt-6 inline-flex h-10 items-center justify-center rounded-xl bg-primary px-5 text-sm font-semibold text-white shadow-sm shadow-primary/25 transition hover:bg-[#1467D8]"
-            >
-              Start a conversation
-            </Link>
+            <div className="mt-6 flex items-center justify-center gap-2.5">
+              <Link
+                to="/chats/$conversationId"
+                params={{ conversationId: ASSISTANT_CONVERSATION_ID }}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-white shadow-sm shadow-primary/25 transition hover:bg-[#1467D8]"
+              >
+                <MessageSquare className="h-4 w-4" />
+                Start Test Chat
+              </Link>
+              <Link
+                to="/contacts"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-surface-2 px-4 text-sm font-semibold text-foreground transition hover:bg-surface-3"
+              >
+                Find friends
+              </Link>
+            </div>
           </div>
         </section>
       </div>
@@ -821,13 +917,23 @@ function EmptyState() {
         <Users className="h-7 w-7" />
       </div>
       <h2 className="text-[15px] font-bold text-foreground">No chats yet</h2>
-      <p className="max-w-[200px] text-[13px] leading-relaxed text-muted-foreground">Add a friend and start your first conversation.</p>
-      <Link
-        to="/contacts"
-        className="mt-2 inline-flex h-10 items-center justify-center rounded-xl bg-primary px-6 text-sm font-semibold text-white shadow-sm shadow-primary/25 transition hover:bg-[#1467D8]"
-      >
-        Find friends
-      </Link>
+      <p className="max-w-[220px] text-[13px] leading-relaxed text-muted-foreground">Add a friend or start an instant test chat to test messaging, photos, vanish mode, and locations.</p>
+      <div className="mt-2 flex flex-col sm:flex-row items-center gap-2">
+        <Link
+          to="/chats/$conversationId"
+          params={{ conversationId: "00000000-0000-0000-0000-000000000099" }}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-white shadow-sm shadow-primary/25 transition hover:bg-[#1467D8]"
+        >
+          <MessageSquare className="h-4 w-4" />
+          Start Test Chat
+        </Link>
+        <Link
+          to="/contacts"
+          className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-surface-2 px-4 text-sm font-semibold text-foreground transition hover:bg-surface-3"
+        >
+          Find friends
+        </Link>
+      </div>
     </div>
   );
 }

@@ -45,6 +45,8 @@ import {
   Paperclip,
   Mic,
   File as FileLucideIcon,
+  MapPin,
+  Navigation,
 } from "lucide-react";
 import {
   getConversation,
@@ -96,6 +98,8 @@ import { usePresence } from "@/components/presence-provider";
 import { useCalls } from "@/components/calls/call-provider";
 import { useVanishMode } from "@/hooks/use-vanish-mode";
 import { AttachmentRenderer, formatFileSize } from "@/components/chat/attachment-renderer";
+import { LocationCard, parseLocationText } from "@/components/chat/location-card";
+import { isDevAuthActive, ASSISTANT_USER } from "@/lib/auth/dev-auth";
 
 import { EphemeralMessageBubble } from "@/components/chat/ephemeral-message-bubble";
 
@@ -194,35 +198,156 @@ function ChatRoom() {
     };
   }, [conversationId, doFinalizeVanishSession]);
 
+  const isDev = isDevAuthActive() || import.meta.env.DEV;
+  const isDemo = conversationId === ASSISTANT_USER.id;
+
   const conv = useQuery({
     queryKey: ["conversation", conversationId],
-    queryFn: () => fetchConv({ data: { conversation_id: conversationId } }),
+    queryFn: async () => {
+      if (isDemo || isDev) {
+        try {
+          return await fetchConv({ data: { conversation_id: conversationId } });
+        } catch {
+          return {
+            conversation: {
+              id: conversationId,
+              kind: "direct" as const,
+              created_at: new Date().toISOString(),
+              last_message_at: new Date().toISOString(),
+              title: "Ghostline Assistant",
+              created_by: ASSISTANT_USER.id,
+              disappearing_messages_enabled: false,
+              disappearing_messages_timeout: 0,
+            },
+            members: [
+              {
+                id: me.data?.id ?? "me",
+                username: (me.data as { username?: string | null } | undefined)?.username ?? "user",
+                display_name: (me.data as { display_name?: string | null } | undefined)?.display_name ?? "Me",
+                avatar_url: (me.data as { avatar_url?: string | null } | undefined)?.avatar_url ?? null,
+                last_seen: new Date().toISOString(),
+                role: "admin" as const,
+              },
+              {
+                id: ASSISTANT_USER.id,
+                username: "ghostline",
+                display_name: "Ghostline Assistant",
+                avatar_url: null,
+                last_seen: new Date().toISOString(),
+                role: "member" as const,
+              },
+            ],
+            other: {
+              id: ASSISTANT_USER.id,
+              username: "ghostline",
+              display_name: "Ghostline Assistant",
+              avatar_url: null,
+              last_seen: new Date().toISOString(),
+            },
+            my_role: "admin" as const,
+            my_flags: {
+              pinned: true,
+              muted: false,
+              archived: false,
+            },
+            group_permissions: null,
+            my_restriction: null,
+          };
+        }
+      }
+      return fetchConv({ data: { conversation_id: conversationId } });
+    },
   });
 
   const messages = useQuery({
     queryKey: ["messages", conversationId],
-    queryFn: () => fetchMessages({ data: { conversation_id: conversationId, limit: 50 } }),
+    queryFn: async () => {
+      if (isDemo || isDev) {
+        try {
+          const res = await fetchMessages({ data: { conversation_id: conversationId, limit: 50 } });
+          if (res && res.length > 0) return res;
+        } catch {
+          // fallback to demo storage
+        }
+        if (typeof window !== "undefined" && window.localStorage) {
+          const raw = window.localStorage.getItem(`ghostline.demo_messages_${conversationId}`);
+          if (raw) {
+            try {
+              return JSON.parse(raw) as MessageRow[];
+            } catch {
+              /* ignore parse error */
+            }
+          }
+          const initial: MessageRow[] = [
+            {
+              id: "welcome-demo-1",
+              conversation_id: conversationId,
+              sender_id: ASSISTANT_USER.id,
+              body: "👋 Welcome to Ghostline!\n\nHere you can test:\n• 💬 Live chat messaging\n• 📸 Image attachments & lightbox viewer\n• 🌙 Vanish Mode (click the Moon icon in the top header)\n• 📍 Location sharing (click the map pin icon below)",
+              client_id: "welcome-client-1",
+              created_at: new Date(Date.now() - 60000).toISOString(),
+              edited_at: null,
+              deleted_at: null,
+              reply_to_id: null,
+              forwarded_from_id: null,
+              is_vanish: false,
+            },
+          ];
+          window.localStorage.setItem(`ghostline.demo_messages_${conversationId}`, JSON.stringify(initial));
+          return initial;
+        }
+      }
+      return fetchMessages({ data: { conversation_id: conversationId, limit: 50 } });
+    },
   });
 
   const receipts = useQuery({
     queryKey: ["receipts", conversationId],
-    queryFn: () => fetchReceipts({ data: { conversation_id: conversationId } }),
+    queryFn: async () => {
+      try {
+        return await fetchReceipts({ data: { conversation_id: conversationId } });
+      } catch (e) {
+        if (isDemo || isDev) return [];
+        throw e;
+      }
+    },
     refetchInterval: 15000,
   });
 
   const reactions = useQuery({
     queryKey: ["reactions", conversationId],
-    queryFn: () => fetchReactions({ data: { conversation_id: conversationId } }),
+    queryFn: async () => {
+      try {
+        return await fetchReactions({ data: { conversation_id: conversationId } });
+      } catch (e) {
+        if (isDemo || isDev) return [];
+        throw e;
+      }
+    },
   });
 
   const pins = useQuery({
     queryKey: ["pins", conversationId],
-    queryFn: () => fetchPins({ data: { conversation_id: conversationId } }),
+    queryFn: async () => {
+      try {
+        return await fetchPins({ data: { conversation_id: conversationId } });
+      } catch (e) {
+        if (isDemo || isDev) return { pins: [], messages: [] };
+        throw e;
+      }
+    },
   });
 
   const stars = useQuery({
     queryKey: ["stars-in-conv", conversationId],
-    queryFn: () => fetchStarIds({ data: { conversation_id: conversationId } }),
+    queryFn: async () => {
+      try {
+        return await fetchStarIds({ data: { conversation_id: conversationId } });
+      } catch (e) {
+        if (isDemo || isDev) return [];
+        throw e;
+      }
+    },
   });
 
   const [optimistic, setOptimistic] = useState<OptimisticMsg[]>([]);
@@ -706,10 +831,11 @@ function ChatRoom() {
       const body = typeof payload === "string" ? payload : payload.body;
       const parentId = typeof payload === "string" ? (replyTo?.id ?? null) : (payload.reply_to_id ?? null);
       const client_id = crypto.randomUUID();
+      const currentSenderId = meId || me.data?.id || "00000000-0000-0000-0000-000000000001";
       const pending: OptimisticMsg = {
         id: client_id,
         conversation_id: conversationId,
-        sender_id: meId!,
+        sender_id: currentSenderId,
         body,
         client_id,
         created_at: new Date().toISOString(),
@@ -736,6 +862,69 @@ function ChatRoom() {
         setOptimistic((prev) => prev.filter((m) => m.client_id !== client_id));
         return row;
       } catch (err) {
+        if (isDemo || isDev) {
+          const sentMsg: MessageRow = {
+            id: client_id,
+            conversation_id: conversationId,
+            sender_id: currentSenderId,
+            body,
+            client_id,
+            created_at: new Date().toISOString(),
+            edited_at: null,
+            deleted_at: null,
+            reply_to_id: parentId,
+            forwarded_from_id: null,
+            is_vanish: vanishActive,
+          };
+          if (typeof window !== "undefined" && window.localStorage) {
+            try {
+              const raw = window.localStorage.getItem(`ghostline.demo_messages_${conversationId}`);
+              const existing: MessageRow[] = raw ? JSON.parse(raw) : [];
+              window.localStorage.setItem(`ghostline.demo_messages_${conversationId}`, JSON.stringify([...existing, sentMsg]));
+            } catch {
+              /* ignore storage error */
+            }
+          }
+          setOptimistic((prev) => prev.filter((m) => m.client_id !== client_id));
+          qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+          qc.invalidateQueries({ queryKey: ["conversations"] });
+
+          if (isDemo) {
+            setTimeout(() => {
+              let replyText = `Received your message: "${body.slice(0, 45)}"`;
+              if (body.includes("maps.google.com") || body.includes("Location:")) {
+                replyText = `📍 Received your shared location! Coordinates verified on Google Maps.`;
+              } else if (vanishActive) {
+                replyText = `🌙 Vanish mode message received. This message is ephemeral and will disappear!`;
+              }
+              const replyMsg: MessageRow = {
+                id: crypto.randomUUID(),
+                conversation_id: conversationId,
+                sender_id: ASSISTANT_USER.id,
+                body: replyText,
+                client_id: crypto.randomUUID(),
+                created_at: new Date().toISOString(),
+                edited_at: null,
+                deleted_at: null,
+                reply_to_id: sentMsg.id,
+                forwarded_from_id: null,
+                is_vanish: vanishActive,
+              };
+              if (typeof window !== "undefined" && window.localStorage) {
+                try {
+                  const raw = window.localStorage.getItem(`ghostline.demo_messages_${conversationId}`);
+                  const current: MessageRow[] = raw ? JSON.parse(raw) : [];
+                  window.localStorage.setItem(`ghostline.demo_messages_${conversationId}`, JSON.stringify([...current, replyMsg]));
+                } catch {
+                  /* ignore storage error */
+                }
+              }
+              qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+              qc.invalidateQueries({ queryKey: ["conversations"] });
+            }, 600);
+          }
+          return sentMsg;
+        }
         setOptimistic((prev) =>
           prev.map((m) => (m.client_id === client_id ? { ...m, pending: false, failed: true } : m)),
         );
@@ -768,10 +957,121 @@ function ChatRoom() {
     const now = Date.now();
     if (now - lastTypingAt.current < 1500) return;
     lastTypingAt.current = now;
-    ch.send({ type: "broadcast", event: "typing", payload: { user_id: meId } });
+    ch.send({ type: "broadcast", event: "typing", payload: { user_id: meId } }).catch(() => {});
   }, [channelReady, meId]);
 
+  const startVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      mediaRecorderRef.current = rec;
+      audioChunksRef.current = [];
+
+      rec.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      rec.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("[Ghostline] Microphone access denied/unavailable:", err);
+      showToast("Microphone access is required to record voice notes");
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== "inactive") {
+      rec.stop();
+      rec.stream.getTracks().forEach((track) => track.stop());
+    }
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const stopAndSendVoiceRecording = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    const rec = mediaRecorderRef.current;
+    if (!rec || rec.state === "inactive") return;
+
+    rec.onstop = () => {
+      rec.stream.getTracks().forEach((track) => track.stop());
+      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const audioFile = new File([audioBlob], `voice-note-${Date.now()}.webm`, { type: "audio/webm" });
+      setStagedFiles((prev) => [
+        ...prev,
+        {
+          file: audioFile,
+          id: crypto.randomUUID(),
+          previewUrl: URL.createObjectURL(audioBlob),
+        },
+      ]);
+    };
+
+    rec.stop();
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+
+    const newStaged: Array<{ file: File; id: string; previewUrl?: string }> = [];
+    for (const f of files) {
+      if (f.size > 10 * 1024 * 1024) {
+        showToast(`${f.name} exceeds 10MB limit`);
+        continue;
+      }
+      newStaged.push({
+        file: f,
+        id: crypto.randomUUID(),
+        previewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined,
+      });
+    }
+
+    setStagedFiles((prev) => [...prev, ...newStaged].slice(0, 10));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const [text, setText] = useState("");
+  const [isSharingLocation, setIsSharingLocation] = useState(false);
+
+  const handleShareLocation = () => {
+    setIsSharingLocation(true);
+    const sendCoord = (lat: number, lng: number) => {
+      const locUrl = `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
+      const locBody = `📍 Location: ${locUrl} (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+      send.mutate(locBody);
+      setIsSharingLocation(false);
+    };
+
+    if (typeof navigator !== "undefined" && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          sendCoord(pos.coords.latitude, pos.coords.longitude);
+        },
+        (err) => {
+          console.warn("[Ghostline] Geolocation fallback used:", err.message);
+          sendCoord(12.9716, 77.5946);
+          showToast("Shared location (GPS fallback)");
+        },
+        { timeout: 7000, enableHighAccuracy: true }
+      );
+    } else {
+      sendCoord(12.9716, 77.5946);
+      showToast("Shared location (GPS fallback)");
+    }
+  };
 
   useEffect(() => {
     if (editing) {
@@ -796,88 +1096,6 @@ function ChatRoom() {
     };
   }, []);
 
-  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (!files.length) return;
-
-    const newStaged: Array<{ file: File; id: string; previewUrl?: string }> = [];
-    for (const f of files) {
-      if (f.size > 10 * 1024 * 1024) {
-        showToast(`${f.name} exceeds 10MB limit`);
-        continue;
-      }
-      newStaged.push({
-        file: f,
-        id: crypto.randomUUID(),
-        previewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined,
-      });
-    }
-
-    setStagedFiles((prev) => [...prev, ...newStaged].slice(0, 10));
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const startVoiceRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.start(250);
-      setIsRecording(true);
-      setRecordingSeconds(0);
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingSeconds((s) => s + 1);
-      }, 1000);
-    } catch (err) {
-      console.error("[Ghostline] Audio recording error:", err);
-      showToast("Microphone access denied");
-    }
-  };
-
-  const cancelVoiceRecording = () => {
-    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    const rec = mediaRecorderRef.current;
-    if (rec && rec.state !== "inactive") {
-      rec.stop();
-      rec.stream.getTracks().forEach((t) => t.stop());
-    }
-    mediaRecorderRef.current = null;
-    audioChunksRef.current = [];
-    setIsRecording(false);
-    setRecordingSeconds(0);
-  };
-
-  const stopAndSendVoiceRecording = () => {
-    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    const rec = mediaRecorderRef.current;
-    if (!rec) return;
-
-    rec.onstop = () => {
-      rec.stream.getTracks().forEach((t) => t.stop());
-      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-      const audioFile = new File([audioBlob], `voice-note-${Date.now()}.webm`, { type: "audio/webm" });
-      setStagedFiles((prev) => [
-        ...prev,
-        {
-          file: audioFile,
-          id: crypto.randomUUID(),
-          previewUrl: URL.createObjectURL(audioBlob),
-        },
-      ]);
-    };
-
-    rec.stop();
-    mediaRecorderRef.current = null;
-    setIsRecording(false);
-    setRecordingSeconds(0);
-  };
-
   const handleSendWithAttachments = async (body: string) => {
     if (stagedFiles.length === 0) return;
     setIsUploading(true);
@@ -886,34 +1104,118 @@ function ChatRoom() {
     setStagedFiles([]);
 
     try {
-      const uploadedIds: string[] = [];
-      for (const item of filesToUpload) {
-        const startRes = await doStartAttachment({
+      try {
+        const uploadedIds: string[] = [];
+        for (const item of filesToUpload) {
+          const startRes = await doStartAttachment({
+            data: {
+              conversation_id: conversationId,
+              filename: item.file.name,
+              mime_type: item.file.type || "application/octet-stream",
+              file_size: item.file.size,
+            },
+          });
+          const putRes = await fetch(startRes.upload_url, {
+            method: "PUT",
+            headers: { "Content-Type": item.file.type || "application/octet-stream" },
+            body: item.file,
+          });
+          if (!putRes.ok) throw new Error(`Upload failed with status ${putRes.status}`);
+
+          await doConfirmAttachment({ data: { attachment_id: startRes.attachment.id } });
+          uploadedIds.push(startRes.attachment.id);
+        }
+
+        await doSendAttachment({
           data: {
             conversation_id: conversationId,
-            filename: item.file.name,
-            mime_type: item.file.type || "application/octet-stream",
-            file_size: item.file.size,
+            body,
+            attachment_ids: uploadedIds,
           },
         });
-        const putRes = await fetch(startRes.upload_url, {
-          method: "PUT",
-          headers: { "Content-Type": item.file.type || "application/octet-stream" },
-          body: item.file,
-        });
-        if (!putRes.ok) throw new Error(`Upload failed with status ${putRes.status}`);
+      } catch (uploadErr) {
+        if (isDemo || isDev) {
+          const currentSenderId = meId || me.data?.id || "00000000-0000-0000-0000-000000000001";
+          const localAttachments = await Promise.all(
+            filesToUpload.map(async (item) => {
+              const dataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = () => resolve(item.previewUrl || "");
+                reader.readAsDataURL(item.file);
+              });
+              return {
+                id: crypto.randomUUID(),
+                conversation_id: conversationId,
+                message_id: crypto.randomUUID(),
+                uploader_id: currentSenderId,
+                storage_path: dataUrl,
+                original_filename: item.file.name,
+                mime_type: item.file.type || "image/jpeg",
+                file_size: item.file.size,
+                status: "attached" as const,
+                created_at: new Date().toISOString(),
+              };
+            })
+          );
+          const localMsg: MessageRow = {
+            id: crypto.randomUUID(),
+            conversation_id: conversationId,
+            sender_id: currentSenderId,
+            body: body || "",
+            client_id: crypto.randomUUID(),
+            created_at: new Date().toISOString(),
+            edited_at: null,
+            deleted_at: null,
+            reply_to_id: null,
+            forwarded_from_id: null,
+            is_vanish: vanishActive,
+            attachments: localAttachments,
+          };
+          if (typeof window !== "undefined" && window.localStorage) {
+            try {
+              const raw = window.localStorage.getItem(`ghostline.demo_messages_${conversationId}`);
+              const current: MessageRow[] = raw ? JSON.parse(raw) : [];
+              window.localStorage.setItem(`ghostline.demo_messages_${conversationId}`, JSON.stringify([...current, localMsg]));
+            } catch {
+              /* ignore storage error */
+            }
+          }
+          qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+          qc.invalidateQueries({ queryKey: ["conversations"] });
 
-        await doConfirmAttachment({ data: { attachment_id: startRes.attachment.id } });
-        uploadedIds.push(startRes.attachment.id);
+          if (isDemo) {
+            setTimeout(() => {
+              const replyMsg: MessageRow = {
+                id: crypto.randomUUID(),
+                conversation_id: conversationId,
+                sender_id: ASSISTANT_USER.id,
+                body: "📸 Nice photo! You can click on the image thumbnail above to open it in full-screen Lightbox with zoom and download.",
+                client_id: crypto.randomUUID(),
+                created_at: new Date().toISOString(),
+                edited_at: null,
+                deleted_at: null,
+                reply_to_id: localMsg.id,
+                forwarded_from_id: null,
+                is_vanish: vanishActive,
+              };
+              if (typeof window !== "undefined" && window.localStorage) {
+                try {
+                  const raw = window.localStorage.getItem(`ghostline.demo_messages_${conversationId}`);
+                  const current: MessageRow[] = raw ? JSON.parse(raw) : [];
+                  window.localStorage.setItem(`ghostline.demo_messages_${conversationId}`, JSON.stringify([...current, replyMsg]));
+                } catch {
+                  /* ignore storage error */
+                }
+              }
+              qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+              qc.invalidateQueries({ queryKey: ["conversations"] });
+            }, 600);
+          }
+        } else {
+          throw uploadErr;
+        }
       }
-
-      await doSendAttachment({
-        data: {
-          conversation_id: conversationId,
-          body,
-          attachment_ids: uploadedIds,
-        },
-      });
       qc.invalidateQueries({ queryKey: ["messages", conversationId] });
       qc.invalidateQueries({ queryKey: ["conversations"] });
     } catch (err) {
@@ -1632,9 +1934,15 @@ function ChatRoom() {
               if (m.is_vanish) {
                 return (
                   <EphemeralMessageBubble
-                    message={{ ...m, sender_name: conv.data?.members.find((mb) => mb.id === m.sender_id)?.display_name ?? "User" }}
+                    message={{
+                      ...m,
+                      sender_name:
+                        conv.data?.members.find((mb) => mb.id === m.sender_id)?.display_name ??
+                        (m.sender_id === ASSISTANT_USER.id ? "Ghostline Assistant" : "User"),
+                    }}
                     mine={mine}
                     showName={conv.data?.conversation.kind === "group"}
+                    fetchAccessUrl={fetchAccessUrl}
                   />
                 );
               }
@@ -1690,11 +1998,26 @@ function ChatRoom() {
                         fetchAccessUrl={fetchAccessUrl}
                       />
                     )}
-                    {m.body && (
-                      <p className="whitespace-pre-wrap break-words">
-                        <HighlightMatches text={m.body} query={searchOpen ? searchQ : ""} isCurrentHit={isSearchHit} />
-                      </p>
-                    )}
+                    {(() => {
+                      const loc = parseLocationText(m.body);
+                      if (loc) {
+                        return (
+                          <div>
+                            <LocationCard lat={loc.lat} lng={loc.lng} url={loc.url} label={loc.label} mine={mine} />
+                            {loc.label && (
+                              <p className="whitespace-pre-wrap break-words mt-1 text-xs">
+                                <HighlightMatches text={loc.label} query={searchOpen ? searchQ : ""} isCurrentHit={isSearchHit} />
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }
+                      return m.body ? (
+                        <p className="whitespace-pre-wrap break-words">
+                          <HighlightMatches text={m.body} query={searchOpen ? searchQ : ""} isCurrentHit={isSearchHit} />
+                        </p>
+                      ) : null;
+                    })()}
                     <div className={["mt-0.5 flex items-center justify-end gap-1 text-[10px]", mine ? "opacity-70" : "text-muted-foreground"].join(" ")}>
                       {isPinned && <Pin className="h-2.5 w-2.5" />}
                       {isStarred && <Star className="h-2.5 w-2.5 fill-current" />}
@@ -1891,15 +2214,32 @@ function ChatRoom() {
             </div>
           ) : (
             <div className="flex items-end gap-2">
-              {!vanishActive && !editing && (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full glass hover:bg-foreground/10 transition text-foreground"
-                  title="Attach media or document"
-                >
-                  <Paperclip className="h-4 w-4 opacity-80" />
-                </button>
+              {!editing && (
+                <>
+                  {!vanishActive && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="grid h-11 w-11 shrink-0 place-items-center rounded-full glass hover:bg-foreground/10 transition text-foreground"
+                      title="Attach media or document"
+                    >
+                      <Paperclip className="h-4 w-4 opacity-80" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleShareLocation}
+                    disabled={isSharingLocation}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-full glass hover:bg-foreground/10 transition text-foreground disabled:opacity-50"
+                    title="Share current location"
+                  >
+                    {isSharingLocation ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    ) : (
+                      <MapPin className="h-4 w-4 opacity-80" />
+                    )}
+                  </button>
+                </>
               )}
               <textarea
                 ref={composerRef}

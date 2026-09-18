@@ -14,7 +14,7 @@ import {
 } from "@/lib/friendships.functions";
 import { openDirectConversation } from "@/lib/chat.functions";
 import { authService } from "@/lib/auth/session";
-import { isDevAuthActive, getActiveDevUserProfile, DEV_USER } from "@/lib/auth/dev-auth";
+import { isDevAuthActive, getActiveDevUserProfile, DEV_USER, ASSISTANT_USER, getRegisteredDevAccounts } from "@/lib/auth/dev-auth";
 
 export const Route = createFileRoute("/_authenticated/contacts")({
   component: ContactsPage,
@@ -258,10 +258,55 @@ function ContactsPage() {
                 {searching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               </div>
 
+              {/* In dev mode, show suggested test contacts when not searching */}
+              {isDevAuthActive() && q.trim().length < 2 && (
+                <div className="mt-4">
+                  <h2 className="mb-2 text-xs uppercase tracking-widest text-muted-foreground font-semibold">
+                    Available Test Contacts
+                  </h2>
+                  <ul className="grid gap-2">
+                    <Row name="Ghostline Assistant" sub="@ghostline">
+                      <Link
+                        to="/chats/$conversationId"
+                        params={{ conversationId: ASSISTANT_USER.id }}
+                        className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:bg-[#1467D8] transition"
+                      >
+                        <MessageCircle className="h-3 w-3" /> Chat Now
+                      </Link>
+                    </Row>
+                    {getRegisteredDevAccounts()
+                      .filter((acc) => acc.user.id !== me.data?.id)
+                      .map((acc) => (
+                        <Row
+                          key={acc.user.id}
+                          name={acc.profile.display_name || acc.profile.username}
+                          sub={`@${acc.profile.username}`}
+                        >
+                          <Link
+                            to="/chats/$conversationId"
+                            params={{ conversationId: acc.user.id }}
+                            className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:bg-[#1467D8] transition"
+                          >
+                            <MessageCircle className="h-3 w-3" /> Chat
+                          </Link>
+                        </Row>
+                      ))}
+                  </ul>
+                </div>
+              )}
+
               <ul className="mt-4 grid gap-2">
                 {results.map((u) => (
                   <Row key={u.id} name={u.display_name ?? u.username ?? "Ghost"} sub={u.username ? "@" + u.username : ""}>
-                    {friendedIds.has(u.id) ? (
+                    {isDevAuthActive() ? (
+                      <Link
+                        to="/chats/$conversationId"
+                        params={{ conversationId: u.id }}
+                        className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:bg-[#1467D8] transition"
+                      >
+                        <MessageCircle className="h-3 w-3" /> Chat
+                      </Link>
+                    ) : friendedIds.has(u.id) ? (
                       <span className="text-xs text-muted-foreground">Pending</span>
                     ) : (
                       <button

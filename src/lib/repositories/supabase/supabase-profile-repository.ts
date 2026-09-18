@@ -3,13 +3,13 @@ import { isUniqueViolation, mapInfraError } from "@/lib/infra/supabase/map-error
 import type { ChatProfile, FriendProfile, Profile } from "@/lib/domain/types";
 import type { ProfilePatch, ProfileRepository } from "@/lib/repositories/ports";
 import { ConflictError } from "@/lib/domain/errors";
-import { isDevAuthBypassEnabled, getActiveDevUserProfile, updateDevUserProfile, DEV_USER, BINDU_USER } from "@/lib/auth/dev-auth";
+import { isDevAuthBypassEnabled, getActiveDevUserProfile, updateDevUserProfile, DEV_USER, BINDU_USER, ASSISTANT_USER, getRegisteredDevAccounts } from "@/lib/auth/dev-auth";
 
 export class SupabaseProfileRepository implements ProfileRepository {
   constructor(private readonly supabase: AppSupabase) {}
 
   async getById(id: string): Promise<Profile | null> {
-    if (isDevAuthBypassEnabled() && (id === BINDU_USER.id || id === DEV_USER.id)) {
+    if (isDevAuthBypassEnabled()) {
       const devProfile = getActiveDevUserProfile(id);
       return {
         id,
@@ -43,7 +43,7 @@ export class SupabaseProfileRepository implements ProfileRepository {
   }
 
   async update(id: string, patch: ProfilePatch): Promise<Profile> {
-    if (isDevAuthBypassEnabled() && (id === BINDU_USER.id || id === DEV_USER.id)) {
+    if (isDevAuthBypassEnabled()) {
       const updated = updateDevUserProfile(id, patch);
       return {
         id,
@@ -86,34 +86,52 @@ export class SupabaseProfileRepository implements ProfileRepository {
 
   async search(query: string, excludeId: string): Promise<FriendProfile[]> {
     const q = query.toLowerCase().replace(/[%_]/g, "\\$&");
-    try {
-      const { data, error } = await this.supabase
-        .from("profiles")
-        .select("id, username, display_name, avatar_url")
-        .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
-        .neq("id", excludeId)
-        .limit(20);
-      if (error) mapInfraError(error);
-      return (data ?? []) as FriendProfile[];
-    } catch (err) {
-      if (isDevAuthBypassEnabled()) {
-        const devProfile = getActiveDevUserProfile(BINDU_USER.id);
-        if (devProfile.id !== excludeId && (devProfile.username.includes(q) || devProfile.display_name.toLowerCase().includes(q))) {
-          return [{
-            id: devProfile.id,
-            username: devProfile.username,
-            display_name: devProfile.display_name,
-            avatar_url: devProfile.avatar_url,
-          }];
-        }
-        return [];
-      }
-      throw err;
+    if (isDevAuthBypassEnabled()) {
+      const candidates = [
+        getActiveDevUserProfile(BINDU_USER.id),
+        getActiveDevUserProfile(DEV_USER.id),
+        getActiveDevUserProfile(ASSISTANT_USER.id),
+        ...getRegisteredDevAccounts().map((a) => a.profile),
+      ];
+      const matched = candidates.filter((p) => {
+        if (!p || p.id === excludeId) return false;
+        if (!q) return true;
+        return (
+          p.username.toLowerCase().includes(q) ||
+          p.display_name.toLowerCase().includes(q)
+        );
+      });
+      return matched.map((p) => ({
+        id: p.id,
+        username: p.username,
+        display_name: p.display_name,
+        avatar_url: p.avatar_url,
+      }));
     }
+    const { data, error } = await this.supabase
+      .from("profiles")
+      .select("id, username, display_name, avatar_url")
+      .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
+      .neq("id", excludeId)
+      .limit(20);
+    if (error) mapInfraError(error);
+    return (data ?? []) as FriendProfile[];
   }
 
   async getChatProfiles(ids: string[]): Promise<ChatProfile[]> {
     if (ids.length === 0) return [];
+    if (isDevAuthBypassEnabled()) {
+      return ids.map((id) => {
+        const p = getActiveDevUserProfile(id);
+        return {
+          id,
+          username: p.username,
+          display_name: p.display_name,
+          avatar_url: p.avatar_url,
+          last_seen: new Date().toISOString(),
+        };
+      });
+    }
     const { data, error } = await this.supabase
       .from("profiles")
       .select("id, username, display_name, avatar_url, last_seen")
@@ -123,6 +141,15 @@ export class SupabaseProfileRepository implements ProfileRepository {
   }
 
   async getCallPeer(id: string) {
+    if (isDevAuthBypassEnabled()) {
+      const p = getActiveDevUserProfile(id);
+      return {
+        id,
+        username: p.username,
+        display_name: p.display_name,
+        avatar_url: p.avatar_url,
+      };
+    }
     const { data, error } = await this.supabase
       .from("profiles")
       .select("id, username, display_name, avatar_url")
@@ -135,6 +162,12 @@ export class SupabaseProfileRepository implements ProfileRepository {
   async checkUsernameAvailability(username: string): Promise<boolean> {
     const normalized = username.replace(/^@/, '').trim().toLowerCase();
     if (!normalized) return false;
+
+    if (isDevAuthBypassEnabled()) {
+      const reserved = ["bindu", "devghost", "ghostline"];
+      const registered = getRegisteredDevAccounts().map((a) => a.profile.username.toLowerCase());
+      return !reserved.includes(normalized) && !registered.includes(normalized);
+    }
 
     const { data, error } = await this.supabase
       .from("profiles")

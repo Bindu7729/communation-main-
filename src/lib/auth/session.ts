@@ -14,6 +14,8 @@ import {
   setActiveDevUser,
   notifyDevAuthChange,
   onDevAuthStateChange,
+  getRegisteredDevAccounts,
+  saveRegisteredDevAccount,
 } from "./dev-auth";
 
 export { isDevAuthBypassEnabled };
@@ -74,6 +76,18 @@ export async function signInWithPassword(email: string, password: string) {
       notifyDevAuthChange("SIGNED_IN", session);
       return { data: { user: session.user, session }, error: null };
     }
+
+    const registered = getRegisteredDevAccounts().find((a) => a.user.email?.toLowerCase() === trimmed);
+    if (registered) {
+      if (password !== registered.password) {
+        return { data: { user: null, session: null }, error: { message: "Invalid login credentials." } };
+      }
+      setActiveDevUser(registered.user, registered.profile);
+      setDevAuthActive(true);
+      const session = getDevSession(registered.user);
+      notifyDevAuthChange("SIGNED_IN", session);
+      return { data: { user: session.user, session }, error: null };
+    }
   }
 
   return supabase.auth.signInWithPassword({ email, password });
@@ -105,6 +119,7 @@ export async function signUpWithPassword(email: string, password: string, emailR
       bio: "Ghostline user",
       avatar_url: null,
     };
+    saveRegisteredDevAccount({ user: customUser, profile: customProfile, password });
     setActiveDevUser(customUser, customProfile);
     setDevAuthActive(true);
     const session = getDevSession(customUser);

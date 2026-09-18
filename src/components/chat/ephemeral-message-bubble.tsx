@@ -11,18 +11,31 @@
  */
 
 
+import type { Attachment } from "@/lib/domain/types";
+import { LocationCard, parseLocationText } from "./location-card";
+import { AttachmentRenderer } from "./attachment-renderer";
+
 interface EphemeralMessageBubbleProps {
-  message: { id: string; created_at: string; sender_name?: string; body: string };
+  message: {
+    id: string;
+    created_at: string;
+    sender_name?: string;
+    body: string;
+    attachments?: Attachment[];
+  };
   mine: boolean;
   /** Show sender name (for group conversations). */
   showName?: boolean;
+  fetchAccessUrl?: (args: { data: { attachment_id: string } }) => Promise<{ url: string; expires_in: number }>;
 }
 
-export function EphemeralMessageBubble({ message, mine, showName }: EphemeralMessageBubbleProps) {
+export function EphemeralMessageBubble({ message, mine, showName, fetchAccessUrl }: EphemeralMessageBubbleProps) {
   const time = new Date(message.created_at).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  const loc = parseLocationText(message.body);
 
   return (
     <li
@@ -34,7 +47,7 @@ export function EphemeralMessageBubble({ message, mine, showName }: EphemeralMes
       aria-label={`Vanish message from ${mine ? "you" : message.sender_name}: ${message.body}`}
     >
       <div
-        className="max-w-[75%] rounded-2xl px-3.5 py-2.5"
+        className="max-w-[85%] rounded-2xl px-3.5 py-2.5"
         style={
           mine
             ? {
@@ -54,12 +67,32 @@ export function EphemeralMessageBubble({ message, mine, showName }: EphemeralMes
             {message.sender_name}
           </p>
         )}
-        <p
-          className="break-words text-sm leading-relaxed"
-          style={{ color: mine ? "#e8f0ff" : "#c8daf0" }}
-        >
-          {message.body}
-        </p>
+        {message.attachments && message.attachments.length > 0 && (
+          <AttachmentRenderer
+            attachments={message.attachments}
+            mine={mine}
+            fetchAccessUrl={fetchAccessUrl || (async () => ({ url: "", expires_in: 0 }))}
+          />
+        )}
+        {loc ? (
+          <div>
+            <LocationCard lat={loc.lat} lng={loc.lng} url={loc.url} label={loc.label} mine={mine} />
+            {loc.label && (
+              <p className="mt-1 text-xs" style={{ color: mine ? "#e8f0ff" : "#c8daf0" }}>
+                {loc.label}
+              </p>
+            )}
+          </div>
+        ) : (
+          message.body && (
+            <p
+              className="break-words text-sm leading-relaxed whitespace-pre-wrap"
+              style={{ color: mine ? "#e8f0ff" : "#c8daf0" }}
+            >
+              {message.body}
+            </p>
+          )
+        )}
         <div className="mt-1 flex items-center justify-end gap-1">
           <span className="text-[9px]" aria-hidden style={{ color: "#4a7a9e" }}>
             {time}

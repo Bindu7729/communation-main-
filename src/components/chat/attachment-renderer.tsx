@@ -76,7 +76,18 @@ function AttachmentItem({
 }) {
   const query = useQuery({
     queryKey: ["attachment-url", attachment.id],
-    queryFn: () => fetchAccessUrl({ data: { attachment_id: attachment.id } }),
+    queryFn: async () => {
+      if (
+        attachment.storage_path &&
+        (attachment.storage_path.startsWith("data:") ||
+          attachment.storage_path.startsWith("blob:") ||
+          attachment.storage_path.startsWith("http:") ||
+          attachment.storage_path.startsWith("https:"))
+      ) {
+        return { url: attachment.storage_path, expires_in: 3600 };
+      }
+      return fetchAccessUrl({ data: { attachment_id: attachment.id } });
+    },
     staleTime: 4 * 60 * 1000, // 4 minutes (presigned URLs expire in 5 min)
   });
 
