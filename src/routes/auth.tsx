@@ -145,8 +145,12 @@ function AuthPage() {
     rotateDeviceKey();
     setGoogleLoading(true);
     try {
-      const { error } = await authService.signInWithGoogle(`${window.location.origin}/auth`);
-      if (error) throw error;
+      const res = await authService.signInWithGoogle(`${window.location.origin}/auth`);
+      if (res.error) throw res.error;
+      if (!res.data?.url) {
+        toast.success("Signed in with Google as Bindu (pbibinduamb@gmail.com)");
+        navigate({ to: "/chats", replace: true });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Google sign-in failed");
       setGoogleLoading(false);
@@ -157,8 +161,12 @@ function AuthPage() {
     rotateDeviceKey();
     setGithubLoading(true);
     try {
-      const { error } = await authService.signInWithGithub(`${window.location.origin}/auth`);
-      if (error) throw error;
+      const res = await authService.signInWithGithub(`${window.location.origin}/auth`);
+      if (res.error) throw res.error;
+      if (!res.data?.url) {
+        toast.success("Signed in with GitHub as Bindu");
+        navigate({ to: "/chats", replace: true });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "GitHub sign-in failed");
       setGithubLoading(false);

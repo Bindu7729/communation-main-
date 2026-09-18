@@ -126,6 +126,34 @@ describe("Ghostline Development Auth Bypass & Safety Hardening", () => {
       expect(isDevAuthActive()).toBe(true);
     });
 
+    it("signs in with Google OAuth in dev mode as Bindu", async () => {
+      setDevAuthActive(false);
+
+      const res = await authService.signInWithGoogle("http://localhost:8080/auth");
+      expect(res.error).toBeNull();
+      expect(res.data?.provider).toBe("google");
+      expect(isDevAuthActive()).toBe(true);
+
+      const currentUser = await authService.getCurrentUser();
+      expect(currentUser?.email).toBe("pbibinduamb@gmail.com");
+
+      const { data } = await authService.getSession();
+      expect(data.session?.user?.email).toBe("pbibinduamb@gmail.com");
+      expect(data.session?.user?.user_metadata?.name).toBe("bindu");
+    });
+
+    it("signs in with GitHub OAuth in dev mode as Bindu", async () => {
+      setDevAuthActive(false);
+
+      const res = await authService.signInWithGithub("http://localhost:8080/auth");
+      expect(res.error).toBeNull();
+      expect(res.data?.provider).toBe("github");
+      expect(isDevAuthActive()).toBe(true);
+
+      const currentUser = await authService.getCurrentUser();
+      expect(currentUser?.email).toBe("pbibinduamb@gmail.com");
+    });
+
     it("signs out and clears dev bypass session", async () => {
       setDevAuthActive(true);
       expect(isDevAuthActive()).toBe(true);

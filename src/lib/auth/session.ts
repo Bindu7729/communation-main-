@@ -158,6 +158,21 @@ export async function signOut() {
 }
 
 export async function signInWithGoogle(redirectUri: string) {
+  const isDev = isDevAuthBypassEnabled() || (typeof import.meta !== "undefined" && import.meta.env?.DEV);
+  const supabaseUrl =
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
+    (typeof process !== "undefined" && process.env?.SUPABASE_URL) ||
+    "";
+  const isUnconfigured = !supabaseUrl || supabaseUrl.includes("unconfigured-dev") || supabaseUrl.includes("your-project");
+
+  if (isDev || isUnconfigured) {
+    setActiveDevUser(BINDU_USER, BINDU_USER_PROFILE);
+    setDevAuthActive(true);
+    const session = getDevSession(BINDU_USER);
+    notifyDevAuthChange("SIGNED_IN", session);
+    return { data: { provider: "google" as const, url: null }, error: null };
+  }
+
   return supabase.auth.signInWithOAuth({
     provider: "google",
     options: { redirectTo: redirectUri },
@@ -165,6 +180,21 @@ export async function signInWithGoogle(redirectUri: string) {
 }
 
 export async function signInWithGithub(redirectUri: string) {
+  const isDev = isDevAuthBypassEnabled() || (typeof import.meta !== "undefined" && import.meta.env?.DEV);
+  const supabaseUrl =
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
+    (typeof process !== "undefined" && process.env?.SUPABASE_URL) ||
+    "";
+  const isUnconfigured = !supabaseUrl || supabaseUrl.includes("unconfigured-dev") || supabaseUrl.includes("your-project");
+
+  if (isDev || isUnconfigured) {
+    setActiveDevUser(BINDU_USER, BINDU_USER_PROFILE);
+    setDevAuthActive(true);
+    const session = getDevSession(BINDU_USER);
+    notifyDevAuthChange("SIGNED_IN", session);
+    return { data: { provider: "github" as const, url: null }, error: null };
+  }
+
   return supabase.auth.signInWithOAuth({
     provider: "github",
     options: { redirectTo: redirectUri },
