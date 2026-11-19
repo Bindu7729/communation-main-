@@ -12,35 +12,40 @@ import { useEffect, useState, useCallback } from "react";
 export type ThemeMode = "light" | "dark" | "system" | "blue-dim";
 export type AccentColor = "blue" | "red" | "green" | "yellow" | "pink" | "purple" | "grey";
 
-const THEME_KEY = "gl-theme";
-const ACCENT_KEY = "gl-accent";
+export const THEME_KEY = "gl-theme";
+export const ACCENT_KEY = "gl-accent";
 
-const DEFAULT_THEME: ThemeMode = "light";
-const DEFAULT_ACCENT: AccentColor = "blue";
+export const DEFAULT_THEME: ThemeMode = "light";
+export const DEFAULT_ACCENT: AccentColor = "blue";
 
-function readStorage<T extends string>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
+export function readStorage<T extends string>(key: string, fallback: T): T {
+  if (typeof window === "undefined" || !window.localStorage) return fallback;
   return (localStorage.getItem(key) as T | null) ?? fallback;
 }
 
 /** Derive the resolved colour-scheme ("light" or "dark") from the chosen theme mode. */
-function resolveScheme(mode: ThemeMode): "light" | "dark" {
+export function resolveScheme(mode: ThemeMode, systemPrefersDark?: boolean): "light" | "dark" {
   if (mode === "dark" || mode === "blue-dim") return "dark";
   if (mode === "system") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    if (systemPrefersDark !== undefined) return systemPrefersDark ? "dark" : "light";
+    if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    return "light";
   }
   return "light";
 }
 
 /** Apply theme + accent to the <html> element. */
-function applyTheme(mode: ThemeMode, accent: AccentColor) {
+export function applyTheme(mode: ThemeMode, accent: AccentColor, systemPrefersDark?: boolean) {
+  if (typeof document === "undefined") return;
   const html = document.documentElement;
 
   // Remove old theme data attributes
   html.removeAttribute("data-theme");
   html.classList.remove("dark");
 
-  const scheme = resolveScheme(mode);
+  const scheme = resolveScheme(mode, systemPrefersDark);
   if (scheme === "dark") html.classList.add("dark");
   if (mode === "blue-dim") html.setAttribute("data-theme", "blue-dim");
 
