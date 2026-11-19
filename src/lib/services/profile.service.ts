@@ -16,7 +16,7 @@ export class ProfileService {
     return this.profiles.update(this.userId, patch);
   }
 
-  searchUsers(query: string): Promise<FriendProfile[]> {
+  async searchUsers(query: string): Promise<FriendProfile[]> {
     if (!query.trim()) throw new ValidationError("Query is required");
     return this.profiles.search(query, this.userId);
   }
